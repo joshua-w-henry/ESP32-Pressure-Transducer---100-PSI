@@ -50,6 +50,12 @@ struct Channel {
   float pressureFiltered = 0.0f;
   bool initialized = false;
   bool valid = false;
+
+  // PlatformIO's Arduino-ESP32 2.0 toolchain builds with C++11.
+  // Default member initializers prevent C++11 aggregate initialization,
+  // so provide an explicit constructor for pin + calibration.
+  Channel(uint8_t adcPin, const Calibration& calibration)
+      : pin(adcPin), cal(calibration) {}
 };
 Channel upstream   {Config::PIN_UPSTREAM, UPSTREAM_CAL};
 Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL};
