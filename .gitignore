@@ -1,0 +1,8 @@
+.pio/
+.vscode/
+.pioenvs/
+.piolibdeps/
+include/secrets.h
+platformio.local.ini
+*.log
+.DS_Store
