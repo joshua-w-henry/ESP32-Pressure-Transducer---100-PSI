@@ -12,7 +12,7 @@
 #include "secrets.h"  // private file; copy include/secrets.example.h
 
 namespace Config {
-constexpr char HOSTNAME[] = "well-pressure";
+constexpr char HOSTNAME[] = "esp32-well-room";
 constexpr char VERSION[] = "0.1.0";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
@@ -127,7 +127,7 @@ void publishDiscoverySensor(const char* slug, const char* name,
     payload += ",\"device_class\":\""; payload += deviceClass; payload += "\"";
   }
   payload += ",\"device\":{\"identifiers\":[\"well-pressure\"],";
-  payload += "\"name\":\"Well Pressure Monitor\",";
+  payload += "\"name\":\"ESP32 Well Room\",";
   payload += "\"manufacturer\":\"DIY / Water Supply\",";
   payload += "\"model\":\"ESP32-S3 dual 100 PSI\",";
   payload += "\"sw_version\":\""; payload += Config::VERSION; payload += "\"}}";
