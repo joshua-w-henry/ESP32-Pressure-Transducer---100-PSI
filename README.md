@@ -18,20 +18,20 @@ This gives `V_ADC = V_sensor / 2`: a 0.5–4.5 V sensor becomes 0.25–2.25 V at
 ## Flash and configure
 
 1. Install VS Code + PlatformIO.
-2. Copy `include/secrets.example.h` to `include/secrets.h` and fill in Wi-Fi (Keeper Of the Hounds), MQTT broker address/credentials, and a unique strong OTA password. The real secrets file is ignored by Git.
+2. Copy `include/secrets.example.h` to `include/secrets.h` and fill in Wi-Fi (Keeper of the Hounds), MQTT broker address/credentials, and a unique strong OTA password. The real secrets file is ignored by Git.
 3. On the ESP32-S3 board, use the native USB-C connector for serial (the right-hand socket when the antenna is at the top), and connect it to your PC. If flashing fails, consult the board's BOOT/RESET procedure.
 4. Run `pio run -e usb -t upload`, followed by `pio device monitor -b 115200`.
 5. Watch the console for a DHCP address, the reported voltages and MQTT connection. Reserve that IP on **Keeper Of the Hounds** after DHCP assigns it.
 
 ## OTA after first USB flash
 
-The device advertises `well-pressure.local` (mDNS; depends on network support). The `ota` PlatformIO environment reads the **local, uncommitted** `OTA_PASSWORD` from `include/secrets.h` and passes it to the uploader automatically.
+The device advertises `esp32-well-room.local` (mDNS; depends on network support). The `ota` PlatformIO environment reads the **local, uncommitted** `OTA_PASSWORD` from `include/secrets.h` and passes it to the uploader automatically.
 
 ```powershell
 pio run -e ota -t upload --upload-port 192.168.86.X
 ```
 
-Use the actual DHCP-reserved IP in place of X. No password is committed to GitHub. OTA requires the PC and device to be reachable on the LAN and typically uses TCP/UDP port 3232. OTA is unavailable if the ESP32 is offline; keep USB recovery access.
+For the first OTA update that changes the hostname, use the **current IP address** explicitly: the old firmware still advertises `well-pressure.local`. Subsequent updates can use `esp32-well-room.local` when mDNS resolves. Use the actual DHCP-reserved IP in place of X. No password is committed to GitHub. OTA requires the PC and device to be reachable on the LAN and typically uses TCP/UDP port 3232. OTA is unavailable if the ESP32 is offline; keep USB recovery access.
 
 ## MQTT
 
@@ -39,7 +39,7 @@ Use the actual DHCP-reserved IP in place of X. No password is committed to GitHu
 - Availability: `water/well/pressure/availability` (`online` / `offline`, retained; offline via broker last will)
 - Discovery: `homeassistant/sensor/well_pressure_*/config` (retained)
 
-With MQTT discovery enabled in Home Assistant, entities for upstream pressure, downstream pressure, differential pressure, both raw transducer voltage readings, and Wi-Fi RSSI should appear under **Well Pressure Monitor**.
+With MQTT discovery enabled in Home Assistant, entities for upstream pressure, downstream pressure, differential pressure, both raw transducer voltage readings, and Wi-Fi RSSI should appear under **ESP32 Well Room**.
 
 A hardware failure may produce an in-range voltage; the crude input-range fault check is **not** a safety interlock. Telemetry is for observation only.
 
