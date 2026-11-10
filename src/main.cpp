@@ -57,6 +57,7 @@ Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL};
 WiFiClient network;
 PubSubClient mqtt(network);
 bool otaStarted = false;
+bool otaInitAttempted = false;
 bool otaBusy = false;
 uint32_t lastSample = 0;
 uint32_t lastSerial = 0;
@@ -170,6 +171,7 @@ void publishMeasurements() {
 }
 
 void beginOTA() {
+  otaInitAttempted = true;
   ArduinoOTA.setHostname(Config::HOSTNAME);
   ArduinoOTA.setPort(3232);
   // Never start an unauthenticated OTA service.
@@ -195,7 +197,7 @@ void beginOTA() {
 
 void connectWifiIfNeeded(uint32_t now) {
   if (WiFi.status() == WL_CONNECTED) {
-    if (!otaStarted) {
+    if (!otaInitAttempted) {
       Serial.printf("Wi-Fi connected. IP=%s RSSI=%d dBm\n",
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
       beginOTA();
