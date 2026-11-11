@@ -1,8 +1,8 @@
 #pragma once
 
 // Copy to include/secrets.h and edit. NEVER commit secrets.h.
-// Wi-Fi uses DHCP: reserve the assigned IP on Keeper Of the Hounds.
-#define WIFI_SSID "Keeper Of the Hounds"
+// Wi-Fi uses DHCP: reserve the assigned IP on Keeper of the Hounds.
+#define WIFI_SSID "Keeper of the Hounds"
 #define WIFI_PASSWORD "CHANGE_ME"
 
 // Mosquitto broker on RTR: use its reachable LAN IP or DNS name.
