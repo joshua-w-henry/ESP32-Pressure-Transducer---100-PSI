@@ -13,7 +13,8 @@
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.1.0";
+constexpr char VERSION[] = "0.2.0";
+constexpr char CALIBRATION_ID[] = "static_20261110-11_2pt_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
 
@@ -28,18 +29,23 @@ constexpr uint32_t WIFI_RETRY_MS = 10000;
 constexpr uint32_t MQTT_RETRY_MS = 10000;
 }
 
-// Independent two-point calibrations. Defaults are NOMINAL, not measurements.
-// After testing against the mechanical gauge, replace these pairs with actual
-// sensor-output voltages measured at known pressures. You may choose any
-// two reference pressures, e.g. 40 PSI and 60 PSI.
+// Provisional two-point static calibration, independently applied per sensor.
+// We only have historical displayed *nominal PSI* values, not synchronized
+// unrounded voltage logs. Convert prior firmware's nominal model
+//    P_nominal = (V_sensor - 0.5V) * 25 PSI/V
+// to approximate sensor-output voltage at each matched manual gauge reading.
+// Anchor A: gauge 39.50 PSI, upstream 25.20, downstream 21.97 nominal PSI
+// Anchor B: gauge 51.50 PSI, upstream 39.59, downstream 36.38 nominal PSI
+// Sensor V is still published so the model can be fitted more accurately later.
+// These are NOT independently validated accuracy specifications; no-flow only.
 struct Calibration {
   float v1;
   float psi1;
   float v2;
   float psi2;
 };
-constexpr Calibration UPSTREAM_CAL   {0.5f, 0.0f, 4.5f, 100.0f};
-constexpr Calibration DOWNSTREAM_CAL {0.5f, 0.0f, 4.5f, 100.0f};
+constexpr Calibration UPSTREAM_CAL   {1.5080f, 39.50f, 2.0836f, 51.50f};
+constexpr Calibration DOWNSTREAM_CAL {1.3788f, 39.50f, 1.9552f, 51.50f};
 
 struct Channel {
   uint8_t pin;
@@ -137,9 +143,14 @@ void publishDiscoverySensor(const char* slug, const char* name,
 }
 
 void publishDiscovery() {
+  // Remove the obsolete retained Home Assistant discovery config from v0.1.
+  // This retires the misleading Rusco differential entity, without touching
+  // historical recorder data. MQTT discovery deletion uses a zero-length payload.
+  if (!mqtt.publish("homeassistant/sensor/well_pressure_filter_dp/config", "", true)) {
+    Serial.println("Failed to clear legacy differential discovery config");
+  }
   publishDiscoverySensor("upstream",   "Upstream Pressure",    "upstream_psi",    "psi", "pressure");
   publishDiscoverySensor("downstream", "Downstream Pressure",  "downstream_psi",  "psi", "pressure");
-  publishDiscoverySensor("filter_dp",  "Rusco Pressure Drop",  "filter_dp_psi",   "psi", "pressure");
   publishDiscoverySensor("up_volts",   "Upstream Sensor Volts", "upstream_v",      "V", "voltage");
   publishDiscoverySensor("down_volts", "Downstream Sensor Volts", "downstream_v", "V", "voltage");
   publishDiscoverySensor("wifi_rssi",  "Wi-Fi RSSI",           "rssi_dbm",       "dBm", "signal_strength");
@@ -147,25 +158,25 @@ void publishDiscovery() {
 
 void publishMeasurements() {
   if (!mqtt.connected() || !upstream.initialized || !downstream.initialized) return;
-  char up[24], down[24], dp[24], upV[24], downV[24];
+  char up[24], down[24], upV[24], downV[24];
   jsonNumber(up, sizeof(up), upstream.pressureFiltered, upstream.valid);
   jsonNumber(down, sizeof(down), downstream.pressureFiltered, downstream.valid);
-  const bool dpValid = upstream.valid && downstream.valid;
-  jsonNumber(dp, sizeof(dp), upstream.pressureFiltered - downstream.pressureFiltered, dpValid);
   jsonNumber(upV, sizeof(upV), upstream.sensorV, true, 3);
   jsonNumber(downV, sizeof(downV), downstream.sensorV, true, 3);
 
   char payload[400];
   int size = snprintf(payload, sizeof(payload),
-    "{\"upstream_psi\":%s,\"downstream_psi\":%s,\"filter_dp_psi\":%s,"
+    "{\"upstream_psi\":%s,\"downstream_psi\":%s,"
     "\"upstream_v\":%s,\"downstream_v\":%s,"
     "\"upstream_valid\":%s,\"downstream_valid\":%s,"
     "\"upstream_adc_mv\":%lu,\"downstream_adc_mv\":%lu,"
+    "\"calibration_id\":\"%s\","
     "\"rssi_dbm\":%d,\"uptime_s\":%lu}",
-    up, down, dp, upV, downV,
+    up, down, upV, downV,
     upstream.valid ? "true" : "false", downstream.valid ? "true" : "false",
     static_cast<unsigned long>(upstream.adcMv),
     static_cast<unsigned long>(downstream.adcMv),
+    Config::CALIBRATION_ID,
     WiFi.RSSI(), static_cast<unsigned long>(millis() / 1000UL));
   if (size <= 0 || size >= static_cast<int>(sizeof(payload))) {
     Serial.println("MQTT payload overflow");
@@ -242,13 +253,11 @@ void connectMqttIfNeeded(uint32_t now) {
 void printDiagnostics() {
   Serial.printf(
     "UP: ADC=%lu mV out=%.3f V psi=%.2f %s | "
-    "DN: ADC=%lu mV out=%.3f V psi=%.2f %s | dP=%.2f psi | WiFi=%s MQTT=%s\n",
+    "DN: ADC=%lu mV out=%.3f V psi=%.2f %s | WiFi=%s MQTT=%s\n",
     static_cast<unsigned long>(upstream.adcMv), upstream.sensorV,
     upstream.pressureFiltered, upstream.valid ? "OK" : "FAULT",
     static_cast<unsigned long>(downstream.adcMv), downstream.sensorV,
     downstream.pressureFiltered, downstream.valid ? "OK" : "FAULT",
-    upstream.valid && downstream.valid
-      ? upstream.pressureFiltered - downstream.pressureFiltered : NAN,
     WiFi.status() == WL_CONNECTED ? "up" : "down",
     mqtt.connected() ? "up" : "down");
 }
@@ -256,7 +265,8 @@ void printDiagnostics() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.printf("\nWater Supply pressure monitor v%s\n", Config::VERSION);
+  Serial.printf("\nWater Supply pressure monitor v%s | calibration: %s\n",
+                Config::VERSION, Config::CALIBRATION_ID);
   analogReadResolution(12);
   analogSetPinAttenuation(Config::PIN_UPSTREAM, ADC_11db);
   analogSetPinAttenuation(Config::PIN_DOWNSTREAM, ADC_11db);
