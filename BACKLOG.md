@@ -53,13 +53,13 @@
 - Name/describe the meter's actual physical location; don't assume its total gallons can be added to meter 1.
 
 ### WS-005 — Adaptive pump-cycle logging (ESP32)
-**Status:** PLANNED
+**Status:** IMPLEMENTED IN CODE v0.3.1; BUILD / OTA / FIELD VALIDATION PENDING
 - Keep pressure ADC sampling at 40 Hz; idle 5s MQTT; ~1s during active cycle and ~0.5s near start/stop, with sensible hysteresis.
 - Publish min/max/mean and sample count per period to preserve short transients. Record the evidence used for inferred pump activity; cross-check against power telemetry.
 - Prefer separate raw/filtered values when useful; don't smooth away pulse edges. Validate historian load/retention impacts.
 
 ### WS-006 — Adaptive camera sampling + cross-instrument alignment (Pi)
-**Status:** PLANNED
+**Status:** PLANNED; 10-second manual burst capture procedure available for near-term calibration cycles
 - Ingest pump-activity state over local MQTT; e.g. ~60–70s baseline and ~5–10s while active, subject to Pi 3 capture/detection performance.
 - Avoid contention between webcam web UI and systemd job. Archive representative images at meaningful state changes.
 - Centralize timestamps, calibration IDs, and data exports for sensor/camera comparisons.
