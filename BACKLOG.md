@@ -39,7 +39,7 @@
 - **Done when:** Camera provides repeatable PSI readings across normal working range, validated against visible gauge graduations at 3+ pressures.
 
 ### WS-003 — Refit/validate electronic pressure calibration against new gauge
-**Status:** BLOCKED BY WS-002 (or manual readings)
+**Status:** PROVISIONAL REFIT COMMITTED v0.3.2; OTA / INDEPENDENT FIELD VALIDATION PENDING
 - Align synchronized upstream/downstream voltages with new-gauge readings under no-flow conditions at multiple pressures, with uncertainty notes.
 - Fit each channel independently, assess residuals and hysteresis, and recheck around 40-ish PSI cut-in and 65-ish PSI cut-out. Do not assume nominal 40/60 switch settings are exact.
 - Use unrounded raw ADC mV (and sensor V) when possible. Keep the v0.2.0 pressure coefficients as identifiable historical baseline, not truth.
@@ -103,6 +103,8 @@
 | 2026-11-11 | Pi webcam detected stuck gauge and jump after tapping | Prior gauge readings **not suitable as a trusted standard** |
 | 2026-11-12 | New glycerin-filled mechanical gauge installed | Camera has **not** yet been repositioned/recalibrated for replacement gauge |
 | 2026-11-12 | Flow firmware v0.3.0 observed online | Flow 1 pulses/GPM/gallons live; Flow 2 absent/zero; nominal 330 pulses/L |
+| 2026-11-13 | New gauge Pi burst and HA matched | ~20 accepted camera angles from pressure rise and post-cycle hold; 36.0 / 61.75 PSI manual references; occasional faulty optical readings rejected |
+| 2026-11-13 | Firmware v0.3.2 provisional pressure correction committed | Up: 1.243033×prior PSI−19.307025; downstream: 1.204790×prior PSI−16.281993; **field validation and OTA still pending** |
 
 ## Immediate next session
 
