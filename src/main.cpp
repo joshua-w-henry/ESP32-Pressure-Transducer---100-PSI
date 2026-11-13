@@ -14,7 +14,7 @@
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.3.0";
+constexpr char VERSION[] = "0.3.1";
 constexpr char CALIBRATION_ID[] = "static_20261110-11_2pt_v1";  // pressure
 constexpr char FLOW_CALIBRATION_ID[] = "gredia_G1_nominal_330ppl_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
@@ -34,7 +34,14 @@ constexpr uint32_t FLOW_RATE_MS = 1000;   // pulse delta / elapsed time
 constexpr uint32_t FLOW_SAVE_RUNNING_MS = 15UL * 60UL * 1000UL;
 constexpr uint32_t FLOW_SAVE_IDLE_MS = 3000;
 constexpr uint32_t SERIAL_MS = 1000;
-constexpr uint32_t PUBLISH_MS = 5000;
+constexpr uint32_t PUBLISH_IDLE_MS = 5000;
+constexpr uint32_t PUBLISH_ACTIVE_MS = 1000;
+constexpr uint32_t PUBLISH_TRANSIENT_MS = 500;
+constexpr uint32_t ACTIVITY_CHECK_MS = 3000;    // compare 3-second pressure changes
+constexpr uint32_t ACTIVITY_HOLD_MS = 30000;    // keep observing after movement
+constexpr uint32_t TRANSIENT_WINDOW_MS = 12000;
+constexpr float ACTIVITY_MIN_DELTA_PSI = 0.16f; // both pressure channels must agree
+constexpr float ACTIVITY_FLOW_GPM = 0.15f;      // hydraulic activity, not pump proof
 constexpr uint32_t WIFI_RETRY_MS = 10000;
 constexpr uint32_t MQTT_RETRY_MS = 10000;
 }
@@ -87,6 +94,83 @@ uint32_t lastPublish = 0;
 uint32_t lastWifiAttempt = 0;
 uint32_t lastMqttAttempt = 0;
 String clientId;
+
+// Per-publication extrema use pre-EMA pressure estimates. A time-window
+// minimum/maximum gives visibility into transients between MQTT messages.
+// Values remain provisional until the new mechanical gauge is calibrated.
+struct PressureInterval {
+  float low = INFINITY;
+  float high = -INFINITY;
+  uint32_t good = 0;
+  void add(float p, bool valid) {
+    if (!valid || !isfinite(p)) return;
+    if (p < low) low = p;
+    if (p > high) high = p;
+    ++good;
+  }
+  void reset() { low = INFINITY; high = -INFINITY; good = 0; }
+};
+PressureInterval upInterval;
+PressureInterval downInterval;
+uint32_t pressureWindowStartMs = 0;
+
+// Inferred hydraulic activity is NOT a definitive pump-run signal:
+// any flow or sufficiently consistent pressure movement can trigger it.
+// The two channels must indicate changes in the same direction.
+bool hydraulicActive = false;
+bool haveHydraulicActivity = false;
+uint32_t lastHydraulicMotionMs = 0;
+uint32_t activityStartMs = 0;
+uint32_t lastActivityCheckMs = 0;
+float activityBaseUp = 0.0f;
+float activityBaseDown = 0.0f;
+bool activityBaseValid = false;
+
+void detectHydraulicActivity(uint32_t now) {
+  bool motion = (flow1Lpm * Config::US_GALLONS_PER_LITER > Config::ACTIVITY_FLOW_GPM)
+             || (flow2Lpm * Config::US_GALLONS_PER_LITER > Config::ACTIVITY_FLOW_GPM);
+  if (now - lastActivityCheckMs >= Config::ACTIVITY_CHECK_MS) {
+    if (upstream.valid && downstream.valid) {
+      const float up = upstream.pressureFiltered;
+      const float down = downstream.pressureFiltered;
+      if (activityBaseValid) {
+        const float du = up - activityBaseUp;
+        const float dd = down - activityBaseDown;
+        if ((du * dd) > 0.0f &&
+            fabsf(du) >= Config::ACTIVITY_MIN_DELTA_PSI &&
+            fabsf(dd) >= Config::ACTIVITY_MIN_DELTA_PSI) motion = true;
+      }
+      activityBaseUp = up;
+      activityBaseDown = down;
+      activityBaseValid = true;
+    } else {
+      activityBaseValid = false;
+    }
+    lastActivityCheckMs = now;
+  }
+  if (motion) {
+    lastHydraulicMotionMs = now;
+    haveHydraulicActivity = true;
+    if (!hydraulicActive) {
+      hydraulicActive = true;
+      activityStartMs = now;
+      lastPublish = now - Config::PUBLISH_TRANSIENT_MS;
+      Serial.println("Hydraulic activity inferred (pressure/flow change)");
+    }
+  } else if (hydraulicActive && haveHydraulicActivity &&
+             now - lastHydraulicMotionMs >= Config::ACTIVITY_HOLD_MS) {
+    hydraulicActive = false;
+    Serial.println("Hydraulic activity settled");
+  }
+}
+
+uint32_t currentPublishPeriod(uint32_t now) {
+  if (!hydraulicActive) return Config::PUBLISH_IDLE_MS;
+  if (now - activityStartMs < Config::TRANSIENT_WINDOW_MS)
+    return Config::PUBLISH_TRANSIENT_MS;
+  return Config::PUBLISH_ACTIVE_MS;
+}
+
 
 // Counts are incremented only in their respective GPIO ISRs. Aligned 32-bit
 // loads are atomic on ESP32-S3; unsigned subtraction handles counter wrap.
@@ -239,6 +323,10 @@ void publishDiscovery() {
   }
   publishDiscoverySensor("upstream",   "Upstream Pressure",    "upstream_psi",    "psi", "pressure");
   publishDiscoverySensor("downstream", "Downstream Pressure",  "downstream_psi",  "psi", "pressure");
+  publishDiscoverySensor("up_min", "Upstream Interval Min", "upstream_min_psi", "psi", "pressure");
+  publishDiscoverySensor("up_max", "Upstream Interval Max", "upstream_max_psi", "psi", "pressure");
+  publishDiscoverySensor("down_min", "Downstream Interval Min", "downstream_min_psi", "psi", "pressure");
+  publishDiscoverySensor("down_max", "Downstream Interval Max", "downstream_max_psi", "psi", "pressure");
   publishDiscoverySensor("up_volts",   "Upstream Sensor Volts", "upstream_v",      "V", "voltage");
   publishDiscoverySensor("down_volts", "Downstream Sensor Volts", "downstream_v", "V", "voltage");
   publishDiscoverySensor("wifi_rssi",  "Wi-Fi RSSI",           "rssi_dbm",       "dBm", "signal_strength");
@@ -253,16 +341,23 @@ void publishDiscovery() {
 void publishMeasurements() {
   if (!mqtt.connected() || !upstream.initialized || !downstream.initialized) return;
   char up[24], down[24], upV[24], downV[24];
+  char upMin[24], upMax[24], downMin[24], downMax[24];
   jsonNumber(up, sizeof(up), upstream.pressureFiltered, upstream.valid);
   jsonNumber(down, sizeof(down), downstream.pressureFiltered, downstream.valid);
+  jsonNumber(upMin, sizeof(upMin), upInterval.low, upInterval.good > 0);
+  jsonNumber(upMax, sizeof(upMax), upInterval.high, upInterval.good > 0);
+  jsonNumber(downMin, sizeof(downMin), downInterval.low, downInterval.good > 0);
+  jsonNumber(downMax, sizeof(downMax), downInterval.high, downInterval.good > 0);
   jsonNumber(upV, sizeof(upV), upstream.sensorV, true, 3);
   jsonNumber(downV, sizeof(downV), downstream.sensorV, true, 3);
 
   const uint64_t total1 = flow1BootPulses + flow1Pulses;
   const uint64_t total2 = flow2BootPulses + flow2Pulses;
-  char payload[768];
+  char payload[1024];
   int size = snprintf(payload, sizeof(payload),
     "{\"upstream_psi\":%s,\"downstream_psi\":%s,"
+    "\"upstream_min_psi\":%s,\"upstream_max_psi\":%s,"
+    "\"downstream_min_psi\":%s,\"downstream_max_psi\":%s,"
     "\"upstream_v\":%s,\"downstream_v\":%s,"
     "\"upstream_valid\":%s,\"downstream_valid\":%s,"
     "\"upstream_adc_mv\":%lu,\"downstream_adc_mv\":%lu,"
@@ -271,8 +366,10 @@ void publishMeasurements() {
     "\"flow1_pulses\":%llu,\"flow2_pulses\":%llu,"
     "\"flow_calibration_id\":\"%s\","
     "\"calibration_id\":\"%s\","
+    "\"hydraulic_active\":%s,\"pressure_window_ms\":%lu,"
+    "\"upstream_samples\":%lu,\"downstream_samples\":%lu,"
     "\"rssi_dbm\":%d,\"uptime_s\":%lu}",
-    up, down, upV, downV,
+    up, down, upMin, upMax, downMin, downMax, upV, downV,
     upstream.valid ? "true" : "false", downstream.valid ? "true" : "false",
     static_cast<unsigned long>(upstream.adcMv),
     static_cast<unsigned long>(downstream.adcMv),
@@ -283,6 +380,10 @@ void publishMeasurements() {
     static_cast<unsigned long long>(total1),
     static_cast<unsigned long long>(total2),
     Config::FLOW_CALIBRATION_ID, Config::CALIBRATION_ID,
+    hydraulicActive ? "true" : "false",
+    static_cast<unsigned long>(millis() - pressureWindowStartMs),
+    static_cast<unsigned long>(upInterval.good),
+    static_cast<unsigned long>(downInterval.good),
     WiFi.RSSI(), static_cast<unsigned long>(millis() / 1000UL));
   if (size <= 0 || size >= static_cast<int>(sizeof(payload))) {
     Serial.println("MQTT payload overflow");
@@ -290,6 +391,10 @@ void publishMeasurements() {
   }
   if (!mqtt.publish(Config::TOPIC_STATE, payload, true)) {
     Serial.println("MQTT measurement publish failed");
+  } else {
+    upInterval.reset();
+    downInterval.reset();
+    pressureWindowStartMs = millis();
   }
 }
 
@@ -418,6 +523,8 @@ void setup() {
   lastWifiAttempt = millis() - Config::WIFI_RETRY_MS;
   lastMqttAttempt = millis() - Config::MQTT_RETRY_MS;
   lastSample = lastSerial = lastPublish = millis();
+  pressureWindowStartMs = millis();
+  lastActivityCheckMs = millis();
   lastFlowRateMs = lastFlowSaveMs = lastFlowActivityMs = millis();
 }
 
@@ -431,8 +538,11 @@ void loop() {
     lastSample = now;
     sampleChannel(upstream);
     sampleChannel(downstream);
+    upInterval.add(upstream.pressureRaw, upstream.valid);
+    downInterval.add(downstream.pressureRaw, downstream.valid);
   }
   updateFlowMeters(now);
+  detectHydraulicActivity(now);
 
   connectMqttIfNeeded(now);
   if (mqtt.connected()) mqtt.loop();
@@ -441,7 +551,7 @@ void loop() {
     lastSerial = now;
     if (upstream.initialized && downstream.initialized) printDiagnostics();
   }
-  if (now - lastPublish >= Config::PUBLISH_MS) {
+  if (now - lastPublish >= currentPublishPeriod(now)) {
     lastPublish = now;
     publishMeasurements();
   }
