@@ -70,6 +70,14 @@
 - Validate cumulative pulse totals survive OTA/restarts, and document potential unsaved pulses on unplanned power loss.
 - Add a simple CSV export for a requested time window spanning Pi logs and Home Assistant Recorder.
 
+### WS-013 — Home Assistant water-consumption dashboard: cumulative, daily, weekly, monthly
+**Status:** TODO · **Priority:** P1
+- Use the installed flowmeter's **monotonically increasing total gallons** MQTT sensor (currently Flow Meter 1 Total) as the single source of truth for household water-use tracking; don't sum two meters unless their actual locations require it.
+- Create four HA views/entities: **cumulative (all-time)** total gallons plus **daily**, **weekly**, and **monthly** water use. HA `utility_meter` helpers or equivalent can derive calendar-period totals from the existing `total_increasing` sensor; use local time for period boundaries.
+- Build a compact **Water Supply** Home Assistant dashboard section with present GPM, cumulative gallons, today's gallons, this week's gallons, and this month's gallons. Include useful historical trend charts later.
+- Check utility-meter behavior on ESP32 restart/NVS recovery, reconnect, counter discontinuities, and future meter calibration changes, so period totals aren't distorted.
+- **Done when:** The four totals show sane values, daily/weekly/monthly reset at their expected calendar boundaries, and volumes reconcile with raw pulse counts and the five-gallon reference test.
+
 ## P2 — Later extensions
 
 - **WS-008:** Characterize actual pump cut-in/cut-out, pressure-storage drawdown, gallons per cycle, pump electrical consumption, and flow-versus-pressure curves.
