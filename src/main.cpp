@@ -14,9 +14,9 @@
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.3.3";
+constexpr char VERSION[] = "0.3.4";
 constexpr char CALIBRATION_ID[] = "glycerin_camfit_20261113_downrel_v2";  // pressure
-constexpr char FLOW_CALIBRATION_ID[] = "gredia_G1_nominal_330ppl_v1";
+constexpr char FLOW_CALIBRATION_ID[] = "flow1_gredia_G1_bucket_295p44ppl_20261113_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
 
@@ -24,7 +24,10 @@ constexpr uint8_t PIN_UPSTREAM = 4;    // ADC1, before Rusco
 constexpr uint8_t PIN_DOWNSTREAM = 5;  // ADC1, after Rusco
 constexpr uint8_t PIN_FLOW_1 = 6;     // Flow meter 1 pulse input, 3.3V max
 constexpr uint8_t PIN_FLOW_2 = 7;     // Flow meter 2 pulse input, 3.3V max
-constexpr float FLOW_1_PULSES_PER_LITER = 330.0f;  // nominal, calibrate later
+// 2026-11-13: two successive measured 5.5 US gal buckets, 6147 and 6155 pulses.
+// Combined coefficient = 12302 / (11 * 3.785411784) = 295.4404 pulses/L.
+// Field provisional: bucket markings / flow-rate dependence not yet validated.
+constexpr float FLOW_1_PULSES_PER_LITER = 295.44f;
 constexpr float FLOW_2_PULSES_PER_LITER = 330.0f;  // independent coefficient
 constexpr double US_GALLONS_PER_LITER = 0.2641720523581484;
 constexpr float DIVIDER_MULTIPLIER = 2.0f; // 10k top / 10k bottom
