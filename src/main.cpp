@@ -14,8 +14,8 @@
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.3.1";
-constexpr char CALIBRATION_ID[] = "static_20261110-11_2pt_v1";  // pressure
+constexpr char VERSION[] = "0.3.2";
+constexpr char CALIBRATION_ID[] = "glycerin_camfit_20261113_v1";  // pressure
 constexpr char FLOW_CALIBRATION_ID[] = "gredia_G1_nominal_330ppl_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
@@ -61,12 +61,29 @@ struct Calibration {
   float v2;
   float psi2;
 };
+// These legacy v0.2 voltage->PSI coefficients are retained deliberately.
+// The old mechanical gauge was later found to stick: they are not a trusted
+// absolute reference. A versioned affine post-correction brings readings
+// close to the new glycerin-filled gauge while keeping the old model traceable.
 constexpr Calibration UPSTREAM_CAL   {1.5080f, 39.50f, 2.0836f, 51.50f};
 constexpr Calibration DOWNSTREAM_CAL {1.3788f, 39.50f, 1.9552f, 51.50f};
+
+// 2026-11-13 provisional camera fit: camera angle calibrated using visual
+// new-gauge anchors 146.63 deg=36 PSI and 80.11 deg=61.75 PSI, matched with
+// ~20 synchronized rising/settled samples. Obvious detector outliers omitted.
+// Do not treat these slopes/offsets as sensor accuracy specifications.
+// Model maps *previous v0.3.1 pressure PSI* -> new reference PSI.
+struct PressureCorrection {
+  float slope;
+  float offset;
+};
+constexpr PressureCorrection UPSTREAM_PRESSURE_CORRECTION {1.243033f, -19.307025f};
+constexpr PressureCorrection DOWNSTREAM_PRESSURE_CORRECTION {1.204790f, -16.281993f};
 
 struct Channel {
   uint8_t pin;
   Calibration cal;
+  PressureCorrection correction;
   uint32_t adcMv = 0;          // ESP32 pin, after divider
   float sensorV = 0.0f;        // recovered voltage before divider
   float pressureRaw = 0.0f;
@@ -77,11 +94,12 @@ struct Channel {
   // PlatformIO's Arduino-ESP32 2.0 toolchain builds with C++11.
   // Default member initializers prevent C++11 aggregate initialization,
   // so provide an explicit constructor for pin + calibration.
-  Channel(uint8_t adcPin, const Calibration& calibration)
-      : pin(adcPin), cal(calibration) {}
+  Channel(uint8_t adcPin, const Calibration& calibration,
+          const PressureCorrection& pressureCorrection)
+      : pin(adcPin), cal(calibration), correction(pressureCorrection) {}
 };
-Channel upstream   {Config::PIN_UPSTREAM, UPSTREAM_CAL};
-Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL};
+Channel upstream   {Config::PIN_UPSTREAM, UPSTREAM_CAL, UPSTREAM_PRESSURE_CORRECTION};
+Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL, DOWNSTREAM_PRESSURE_CORRECTION};
 
 WiFiClient network;
 PubSubClient mqtt(network);
@@ -262,7 +280,9 @@ void sampleChannel(Channel& channel) {
   for (uint8_t i = 0; i < 4; ++i) total += analogReadMilliVolts(channel.pin);
   channel.adcMv = (total + 2) / 4;
   channel.sensorV = (channel.adcMv / 1000.0f) * Config::DIVIDER_MULTIPLIER;
-  channel.pressureRaw = pressureFromVoltage(channel.sensorV, channel.cal);
+  const float legacyPsi = pressureFromVoltage(channel.sensorV, channel.cal);
+  channel.pressureRaw = legacyPsi * channel.correction.slope
+                      + channel.correction.offset;
 
   // Detect gross short/open/overrange conditions. A floating input can still
   // appear valid: this is diagnostic telemetry, not a safety mechanism.
