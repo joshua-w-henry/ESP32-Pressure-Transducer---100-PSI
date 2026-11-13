@@ -2,7 +2,7 @@
 
 **Project plan:** [Water Supply Engineering Backlog](BACKLOG.md) — priorities, calibration tasks, and completed milestones.
 
-Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.0** retains upstream/downstream pressure and adds two GREDIA G1 Hall-effect flowmeters with pulse counts, gal/min, and cumulative gallons in MQTT/Home Assistant. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
+Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.1** retains upstream/downstream pressure and dual GREDIA G1 Hall-effect flowmeters, and adds **adaptive pressure reporting** with per-interval raw pressure minima/maxima. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
 
 ## Hardware
 
@@ -44,6 +44,25 @@ For the first OTA update that changes the hostname, use the **current IP address
 With MQTT discovery enabled in Home Assistant, the existing **five** pressure/voltage/Wi-Fi entities remain under **ESP32 Well Room**. Six new entities represent the two flowmeters: GPM, total gallons, and cumulative raw pulse count for each. At the first MQTT connection after upgrading to v0.2.0, firmware publishes an empty *retained* config to `homeassistant/sensor/well_pressure_filter_dp/config` to retire the misleading Rusco differential sensor. Historical HA recorder records are not intentionally deleted. Existing dashboards may need their obsolete card removed manually.
 
 A hardware failure may produce an in-range voltage; the crude input-range fault check is **not** a safety interlock. Telemetry is for observation only.
+
+## Adaptive hydraulic acquisition (v0.3.1)
+
+ESP32 pressure ADC sampling **remains 40 Hz**, and pulse interrupts remain unchanged. Only the MQTT publication interval changes:
+
+| Inferred state | MQTT reporting | Trigger/notes |
+|---|---|---|
+| Idle | Every 5 s | No recent detected activity |
+| Initial hydraulic activity | Every 0.5 s for 12 s | First detected rise/fall in both pressure channels, or measured flow |
+| Sustained hydraulic activity | Every 1 s | Inferred activity is recent |
+| Settling | Every 1 s for up to 30 s after last detected activity | Returns to idle after 30 s without a new trigger |
+
+**Activity is not definitive pump-on status:** both filtered pressure channels must move in the same direction by at least 0.16 PSI over the 3-second detection window, **or** either flowmeter must report more than 0.15 GPM. Actual faucet draws and tank pressure decreases can trigger active mode; motor status must be corroborated using electrical power.
+
+New state payload fields (retained state topic `water/well/pressure/state`): `hydraulic_active` boolean, `upstream_min_psi`, `upstream_max_psi`, `downstream_min_psi`, `downstream_max_psi`, `pressure_window_ms`, `upstream_samples`, `downstream_samples`. Interval extrema are computed from the **unsmoothed voltage-calibrated pressure estimates** for each 40 Hz sample, and can reveal occasional spikes or noise as well as actual water-pressure transients. The existing pressure values are still exponentially filtered, and **pressure calibration coefficients have not changed**. Home Assistant discovers four additional interval min/max PSI entities; raw and filtered results are not interchangeable.
+
+The end-to-end latency to enter active mode is up to about three seconds for pressure-only events, but instantaneous flow from Flowmeter 1 can trigger earlier. The Pi 3 camera automatic MQTT coordination is **not implemented in this release**; for a near-term pump-cycle calibration run, use a temporary capture burst invoking `well-gauge-auto.service` every ~10 s while preserving the images, and restore the normal systemd timer afterward. Run this without competing capture loops.
+
+**First build/deployment:** Compile using `pio run -e ota` before flashing over OTA. After the update, verify that both flow totals/pulse counts survived the restart, that pressure sensors remain valid, and that new HA min/max sensors appear. No pump control is performed.
 
 ## Dual GREDIA G1 Hall flowmeters (v0.3.0)
 
