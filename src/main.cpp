@@ -93,8 +93,10 @@ String clientId;
 // Never debounce or analog-smooth these digital pulse inputs.
 volatile uint32_t flow1Pulses = 0;
 volatile uint32_t flow2Pulses = 0;
-void IRAM_ATTR onFlow1Rise() { ++flow1Pulses; }
-void IRAM_ATTR onFlow2Rise() { ++flow2Pulses; }
+// Each counter has one ISR writer; the main loop only reads aligned snapshots.
+// Plain assignment avoids the C++20 deprecated volatile ++ expression.
+void IRAM_ATTR onFlow1Rise() { flow1Pulses = flow1Pulses + 1u; }
+void IRAM_ATTR onFlow2Rise() { flow2Pulses = flow2Pulses + 1u; }
 
 Preferences flowNvs;
 bool flowNvsReady = false;
