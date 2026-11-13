@@ -91,9 +91,19 @@
 - On November 13, 2026, both electronic pressure sensors independently recorded a **real hydraulic pressure dip** with near-simultaneous minima at **08:02:08 MST**: upstream **20.71 PSI**, downstream **20.88 PSI** (provisional pressure calibration). Pressure recovered to ~38 PSI at the next 5-second observation. User observed the drop as real, not a voltage/ADC artifact.
 - Separate *hydraulic response* from *electrical pump-switch action*. Correlate future 40-Hz-derived minimum/maximum pressure, frequent MQTT reports, flowmeter counts, the mechanical gauge camera, and an independently confirmed motor-start indicator (pump electrical load data) with synchronized timestamps.
 - Record actual cut-in/cut-out, possible switch contact bounce/response delay, pump start latency, tank behavior, and any startup pressure overshoot or undershoot. Do not infer switch malfunction solely from this transient.
+- A later November 13 observed cycle appeared to reach **nearly zero indicated pressure before pump activation**. See **WS-015** for the distinct mechanical/plumbing investigation after telemetry validation, subject to safety exceptions.
 - Note that adaptive v0.3.1 telemetry only first appeared at ~08:04:15 MST on this run, **after** the 08:02:08 transient; the earlier samples are ~5 seconds apart, leaving the true transient minimum and duration unresolved.
 - Revisit after electronic pressures are calibrated to the replacement glycerin-filled mechanical gauge; historical minimum of 20.7 PSI is **not yet a verified absolute pressure**.
 - **Done when:** At least two pump start/stop cycles are synchronized to reliable motor-state telemetry and pressure/flow observations, with documented pressure-switch behavior and uncertainty.
+
+### WS-015 — Mechanical / plumbing investigation of delayed pump cut-in
+**Status:** OPEN · **Priority:** P1 after trustworthy telemetry; **safety exception** if repeated or accompanied by loss of water, dry running, or motor/electrical abnormality
+
+- **New November 13, 2026 observation:** On a subsequent manually initiated pump cycle, the user observed the pressure fall **nearly to zero before the pump triggered**. This is an observation pending timestamp alignment; do not assign a numeric minimum or assume a particular failed component until the Pi camera and HA pressure/electrical/flow logs are reviewed.
+- **Dependency:** First validate the new glycerin-filled mechanical gauge/camera and independently calibrated upstream/downstream pressure readings across another pump cycle. Collect synchronized pump motor power (or other reliable electrical state) to distinguish **pressure-switch closure, motor energization, and hydraulic pressure recovery**.
+- **Mechanical/hydraulic follow-up:** With verified telemetry, investigate actual switch cut-in/cut-out and repeatability, sensing port/tube obstruction or lag, switch adjustment/condition, pressure-tank precharge and drawdown, pressure losses, check valves or unusual flow restrictions, and actual pump startup/priming behavior as warranted by evidence. Keep troubleshooting observational first; follow isolation and electrical safety requirements if physical work becomes necessary.
+- **Important:** A genuine near-zero pressure delay is potentially consequential. **Do not intentionally repeat severe pressure-loss cycles merely to collect data**; escalate inspection sooner if it recurs or causes loss of service or abnormal pump behavior. Telemetry work should not postpone a needed safety inspection.
+- **Done when:** Confirmed, repeatable relationship between pressure, switch action, motor start, and subsequent pressure recovery; root cause and corrective action documented, with before/after data.
 
 ### 2026-11-13 — v0.3.2 static field validation (HA + Pi camera)
 - **Data windows:** HA 08:00–10:22:53 MST; Pi 08:06–10:18:43 MST. 129 Pi rows, 126 detected, 3 HTTP 503 camera failures; 49 detections during the settled 09:20–10:18 period.
