@@ -163,6 +163,14 @@ The following details were read from **actual user photographs** of the installe
 | 2026-11-13 | New gauge Pi burst and HA matched | ~20 accepted camera angles from pressure rise and post-cycle hold; 36.0 / 61.75 PSI manual references; occasional faulty optical readings rejected |
 | 2026-11-13 | Firmware v0.3.2 provisional pressure correction committed | Up: 1.243033×prior PSI−19.307025; downstream: 1.204790×prior PSI−16.281993; **field validation and OTA still pending** |
 
+## Target operating settings — November 13, 2026
+
+- **Owner-selected domestic pressure range:** **35 PSI cut-in / 55 PSI cut-out** (20 PSI differential), superseding the earlier tentative 40/60 target. This is the *desired setting*, not yet an observed switch setting.
+- **Amtrol tank precharge target:** **33 PSI**, measured with pump power disconnected and **water-side pressure fully relieved** (2 PSI below intended 35 PSI cut-in). Record as-found air pressure and inspect tank condition before adjustment.
+- **Blocker:** Square D Class 9013 FSG2 Series B recently allowed system pressure to fall almost to zero before hydraulic recovery; the November 13 near-zero event is corroborated by ESP32 and the Pi camera. Determine why pump starts late (switch sensing port, contacts, control circuitry / motor, hydraulic delay) before adjusting switch setpoints.
+- **Acceptance:** After fault remediation, verified reliable activation at approximately 35 PSI on falling pressure and deactivation at approximately 55 PSI on rising pressure, with appropriate hysteresis and no pressure collapse. Confirm with the new mechanical gauge plus ESP32 and actual pump electrical-load timeline.
+- Manufacturer references: [Schneider FSG2 adjustments](https://www.se.com/us/en/faqs/FA121330/) and [Amtrol tank precharge FAQ](https://www.amtrol.com/welltanksupport/).
+
 ## Immediate next session
 
 1. **WS-001:** Run the five-gallon meter-1 calibration. Capture pre/post total pulse counts, measured volume and approximate flow.
