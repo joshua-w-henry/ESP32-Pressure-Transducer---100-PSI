@@ -1,28 +1,38 @@
-// Water Supply — ESP32-S3 100 PSI dual-channel pressure monitor
-// GPIO4 upstream / GPIO5 downstream. Each signal MUST pass through a
-// 10k series resistor; GPIO gets 10k to GND and 0.1uF to GND.
-// 5V sensors share ground with the ESP32. Never apply 5V to a GPIO.
+// Water Supply — ESP32-S3 pressure + dual Hall flow meter monitor.
+// Pressure: GPIO4/GPIO5, 10k/10k divider + 0.1uF at ADC input.
+// Flow pulses: GPIO6/GPIO7, 10k series + 15k to GND (NO signal capacitor).
+// All 5V sensors share ESP32 GND. Never apply 5V directly to a GPIO.
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Preferences.h>
 #include <math.h>
 
 #include "secrets.h"  // private file; copy include/secrets.example.h
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.2.0";
-constexpr char CALIBRATION_ID[] = "static_20261110-11_2pt_v1";
+constexpr char VERSION[] = "0.3.0";
+constexpr char CALIBRATION_ID[] = "static_20261110-11_2pt_v1";  // pressure
+constexpr char FLOW_CALIBRATION_ID[] = "gredia_G1_nominal_330ppl_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
 
 constexpr uint8_t PIN_UPSTREAM = 4;    // ADC1, before Rusco
 constexpr uint8_t PIN_DOWNSTREAM = 5;  // ADC1, after Rusco
+constexpr uint8_t PIN_FLOW_1 = 6;     // Flow meter 1 pulse input, 3.3V max
+constexpr uint8_t PIN_FLOW_2 = 7;     // Flow meter 2 pulse input, 3.3V max
+constexpr float FLOW_1_PULSES_PER_LITER = 330.0f;  // nominal, calibrate later
+constexpr float FLOW_2_PULSES_PER_LITER = 330.0f;  // independent coefficient
+constexpr double US_GALLONS_PER_LITER = 0.2641720523581484;
 constexpr float DIVIDER_MULTIPLIER = 2.0f; // 10k top / 10k bottom
 constexpr float EMA_ALPHA = 0.12f;        // ~0.2 s time constant at 40 Hz
-constexpr uint32_t SAMPLE_MS = 25;       // 40 samples per second
+constexpr uint32_t SAMPLE_MS = 25;       // 40 pressure samples per second
+constexpr uint32_t FLOW_RATE_MS = 1000;   // pulse delta / elapsed time
+constexpr uint32_t FLOW_SAVE_RUNNING_MS = 15UL * 60UL * 1000UL;
+constexpr uint32_t FLOW_SAVE_IDLE_MS = 3000;
 constexpr uint32_t SERIAL_MS = 1000;
 constexpr uint32_t PUBLISH_MS = 5000;
 constexpr uint32_t WIFI_RETRY_MS = 10000;
@@ -78,6 +88,81 @@ uint32_t lastWifiAttempt = 0;
 uint32_t lastMqttAttempt = 0;
 String clientId;
 
+// Counts are incremented only in their respective GPIO ISRs. Aligned 32-bit
+// loads are atomic on ESP32-S3; unsigned subtraction handles counter wrap.
+// Never debounce or analog-smooth these digital pulse inputs.
+volatile uint32_t flow1Pulses = 0;
+volatile uint32_t flow2Pulses = 0;
+void IRAM_ATTR onFlow1Rise() { ++flow1Pulses; }
+void IRAM_ATTR onFlow2Rise() { ++flow2Pulses; }
+
+Preferences flowNvs;
+bool flowNvsReady = false;
+uint64_t flow1BootPulses = 0;
+uint64_t flow2BootPulses = 0;
+uint32_t lastFlow1Pulses = 0;
+uint32_t lastFlow2Pulses = 0;
+uint32_t savedFlow1Pulses = 0;
+uint32_t savedFlow2Pulses = 0;
+uint32_t lastFlowRateMs = 0;
+uint32_t lastFlowSaveMs = 0;
+uint32_t lastFlowActivityMs = 0;
+float flow1Lpm = 0.0f;
+float flow2Lpm = 0.0f;
+
+double totalGallons(uint64_t pulses, float pulsesPerLiter) {
+  return (static_cast<double>(pulses) / pulsesPerLiter) * Config::US_GALLONS_PER_LITER;
+}
+
+// Checkpoint the raw pulse totals, not the derived gallons. Recalibration can
+// therefore reprocess all future volume totals without rewriting NVS values.
+// Write only after flow becomes idle or every 15 minutes during sustained flow
+// to avoid excessive flash wear. Unexpected power loss can lose unsaved pulses.
+void saveFlowTotals() {
+  if (!flowNvsReady) return;
+  const uint32_t snap1 = flow1Pulses;
+  const uint32_t snap2 = flow2Pulses;
+  bool savedAny = false;
+  if (snap1 != savedFlow1Pulses) {
+    if (flowNvs.putULong64("m1pulses", flow1BootPulses + snap1) == sizeof(uint64_t)) {
+      savedFlow1Pulses = snap1;
+      savedAny = true;
+    } else {
+      Serial.println("Warning: flow meter 1 NVS checkpoint failed");
+    }
+  }
+  if (snap2 != savedFlow2Pulses) {
+    if (flowNvs.putULong64("m2pulses", flow2BootPulses + snap2) == sizeof(uint64_t)) {
+      savedFlow2Pulses = snap2;
+      savedAny = true;
+    } else {
+      Serial.println("Warning: flow meter 2 NVS checkpoint failed");
+    }
+  }
+  if (savedAny) lastFlowSaveMs = millis();
+}
+
+void updateFlowMeters(uint32_t now) {
+  const uint32_t elapsed = now - lastFlowRateMs;
+  if (elapsed < Config::FLOW_RATE_MS) return;
+  const uint32_t snap1 = flow1Pulses;
+  const uint32_t snap2 = flow2Pulses;
+  const uint32_t count1 = snap1 - lastFlow1Pulses;
+  const uint32_t count2 = snap2 - lastFlow2Pulses;
+  lastFlow1Pulses = snap1;
+  lastFlow2Pulses = snap2;
+  lastFlowRateMs = now;
+  flow1Lpm = (60000.0f * count1) / (Config::FLOW_1_PULSES_PER_LITER * elapsed);
+  flow2Lpm = (60000.0f * count2) / (Config::FLOW_2_PULSES_PER_LITER * elapsed);
+  if (count1 || count2) lastFlowActivityMs = now;
+
+  const bool pendingSave = snap1 != savedFlow1Pulses ||
+                           snap2 != savedFlow2Pulses;
+  const bool dueDuringFlow = now - lastFlowSaveMs >= Config::FLOW_SAVE_RUNNING_MS;
+  const bool settledIdle = now - lastFlowActivityMs >= Config::FLOW_SAVE_IDLE_MS;
+  if (pendingSave && (dueDuringFlow || settledIdle)) saveFlowTotals();
+}
+
 float pressureFromVoltage(float voltage, const Calibration& cal) {
   const float spanV = cal.v2 - cal.v1;
   if (fabsf(spanV) < 0.01f) return NAN; // reject bad calibration
@@ -118,7 +203,8 @@ void jsonNumber(char* dest, size_t len, float value, bool valid, int decimals = 
 
 void publishDiscoverySensor(const char* slug, const char* name,
                             const char* jsonKey, const char* unit,
-                            const char* deviceClass) {
+                            const char* deviceClass,
+                            const char* stateClass = "measurement") {
   String topic = String("homeassistant/sensor/well_pressure_") + slug + "/config";
   String payload;
   payload.reserve(580);
@@ -128,7 +214,7 @@ void publishDiscoverySensor(const char* slug, const char* name,
   payload += "\",\"value_template\":\"{{ value_json."; payload += jsonKey;
   payload += " }}\",\"availability_topic\":\""; payload += Config::TOPIC_AVAIL;
   payload += "\",\"unit_of_measurement\":\""; payload += unit;
-  payload += "\",\"state_class\":\"measurement\"";
+  payload += "\",\"state_class\":\""; payload += stateClass; payload += "\"";
   if (strlen(deviceClass)) {
     payload += ",\"device_class\":\""; payload += deviceClass; payload += "\"";
   }
@@ -154,6 +240,12 @@ void publishDiscovery() {
   publishDiscoverySensor("up_volts",   "Upstream Sensor Volts", "upstream_v",      "V", "voltage");
   publishDiscoverySensor("down_volts", "Downstream Sensor Volts", "downstream_v", "V", "voltage");
   publishDiscoverySensor("wifi_rssi",  "Wi-Fi RSSI",           "rssi_dbm",       "dBm", "signal_strength");
+  publishDiscoverySensor("flow1_rate", "Flow Meter 1 Rate", "flow1_gpm", "gal/min", "volume_flow_rate");
+  publishDiscoverySensor("flow2_rate", "Flow Meter 2 Rate", "flow2_gpm", "gal/min", "volume_flow_rate");
+  publishDiscoverySensor("flow1_total", "Flow Meter 1 Total", "flow1_total_gal", "gal", "water", "total_increasing");
+  publishDiscoverySensor("flow2_total", "Flow Meter 2 Total", "flow2_total_gal", "gal", "water", "total_increasing");
+  publishDiscoverySensor("flow1_pulses", "Flow Meter 1 Pulses", "flow1_pulses", "pulses", "", "total_increasing");
+  publishDiscoverySensor("flow2_pulses", "Flow Meter 2 Pulses", "flow2_pulses", "pulses", "", "total_increasing");
 }
 
 void publishMeasurements() {
@@ -164,19 +256,31 @@ void publishMeasurements() {
   jsonNumber(upV, sizeof(upV), upstream.sensorV, true, 3);
   jsonNumber(downV, sizeof(downV), downstream.sensorV, true, 3);
 
-  char payload[400];
+  const uint64_t total1 = flow1BootPulses + flow1Pulses;
+  const uint64_t total2 = flow2BootPulses + flow2Pulses;
+  char payload[768];
   int size = snprintf(payload, sizeof(payload),
     "{\"upstream_psi\":%s,\"downstream_psi\":%s,"
     "\"upstream_v\":%s,\"downstream_v\":%s,"
     "\"upstream_valid\":%s,\"downstream_valid\":%s,"
     "\"upstream_adc_mv\":%lu,\"downstream_adc_mv\":%lu,"
+    "\"flow1_gpm\":%.3f,\"flow2_gpm\":%.3f,"
+    "\"flow1_total_gal\":%.4f,\"flow2_total_gal\":%.4f,"
+    "\"flow1_pulses\":%llu,\"flow2_pulses\":%llu,"
+    "\"flow_calibration_id\":\"%s\","
     "\"calibration_id\":\"%s\","
     "\"rssi_dbm\":%d,\"uptime_s\":%lu}",
     up, down, upV, downV,
     upstream.valid ? "true" : "false", downstream.valid ? "true" : "false",
     static_cast<unsigned long>(upstream.adcMv),
     static_cast<unsigned long>(downstream.adcMv),
-    Config::CALIBRATION_ID,
+    flow1Lpm * Config::US_GALLONS_PER_LITER,
+    flow2Lpm * Config::US_GALLONS_PER_LITER,
+    totalGallons(total1, Config::FLOW_1_PULSES_PER_LITER),
+    totalGallons(total2, Config::FLOW_2_PULSES_PER_LITER),
+    static_cast<unsigned long long>(total1),
+    static_cast<unsigned long long>(total2),
+    Config::FLOW_CALIBRATION_ID, Config::CALIBRATION_ID,
     WiFi.RSSI(), static_cast<unsigned long>(millis() / 1000UL));
   if (size <= 0 || size >= static_cast<int>(sizeof(payload))) {
     Serial.println("MQTT payload overflow");
@@ -198,6 +302,8 @@ void beginOTA() {
   }
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
+    // Preserve flow totals before the OTA-triggered reboot.
+    saveFlowTotals();
     otaBusy = true;
     if (mqtt.connected()) mqtt.disconnect();
     Serial.println("OTA update started");
@@ -260,6 +366,12 @@ void printDiagnostics() {
     downstream.pressureFiltered, downstream.valid ? "OK" : "FAULT",
     WiFi.status() == WL_CONNECTED ? "up" : "down",
     mqtt.connected() ? "up" : "down");
+  Serial.printf("FLOW1: %.3f GPM, %lu pulses this boot | "
+                "FLOW2: %.3f GPM, %lu pulses this boot\n",
+                flow1Lpm * Config::US_GALLONS_PER_LITER,
+                static_cast<unsigned long>(flow1Pulses),
+                flow2Lpm * Config::US_GALLONS_PER_LITER,
+                static_cast<unsigned long>(flow2Pulses));
 }
 
 void setup() {
@@ -272,6 +384,21 @@ void setup() {
   analogSetPinAttenuation(Config::PIN_DOWNSTREAM, ADC_11db);
   pinMode(Config::PIN_UPSTREAM, INPUT);
   pinMode(Config::PIN_DOWNSTREAM, INPUT);
+
+  // Each flow input uses a 10k (yellow to GPIO) / 15k (GPIO to GND)
+  // level divider. Unlike the analog pressure inputs, NO 0.1uF capacitor.
+  // GPIO6/GPIO7 must never receive the raw 5V pulse signal.
+  pinMode(Config::PIN_FLOW_1, INPUT);
+  pinMode(Config::PIN_FLOW_2, INPUT);
+  flowNvsReady = flowNvs.begin("well-flow", false);
+  if (flowNvsReady) {
+    flow1BootPulses = flowNvs.getULong64("m1pulses", 0);
+    flow2BootPulses = flowNvs.getULong64("m2pulses", 0);
+  } else {
+    Serial.println("Warning: flow totals will NOT survive reboot (NVS unavailable)");
+  }
+  attachInterrupt(digitalPinToInterrupt(Config::PIN_FLOW_1), onFlow1Rise, RISING);
+  attachInterrupt(digitalPinToInterrupt(Config::PIN_FLOW_2), onFlow2Rise, RISING);
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(1024);   // required for HA discovery configurations
@@ -289,6 +416,7 @@ void setup() {
   lastWifiAttempt = millis() - Config::WIFI_RETRY_MS;
   lastMqttAttempt = millis() - Config::MQTT_RETRY_MS;
   lastSample = lastSerial = lastPublish = millis();
+  lastFlowRateMs = lastFlowSaveMs = lastFlowActivityMs = millis();
 }
 
 void loop() {
@@ -302,6 +430,7 @@ void loop() {
     sampleChannel(upstream);
     sampleChannel(downstream);
   }
+  updateFlowMeters(now);
 
   connectMqttIfNeeded(now);
   if (mqtt.connected()) mqtt.loop();
