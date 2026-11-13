@@ -2,7 +2,7 @@
 
 **Project plan:** [Water Supply Engineering Backlog](BACKLOG.md) — priorities, calibration tasks, and completed milestones.
 
-Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.1** retains upstream/downstream pressure and dual GREDIA G1 Hall-effect flowmeters, and adds **adaptive pressure reporting** with per-interval raw pressure minima/maxima. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
+Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.2** retains dual GREDIA G1 Hall-effect flowmeters and adaptive pressure reports, and applies a **new provisional pressure-only recalibration** based on the replacement glycerin-filled gauge and the November 13 camera cycle. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
 
 ## Hardware
 
@@ -44,6 +44,32 @@ For the first OTA update that changes the hostname, use the **current IP address
 With MQTT discovery enabled in Home Assistant, the existing **five** pressure/voltage/Wi-Fi entities remain under **ESP32 Well Room**. Six new entities represent the two flowmeters: GPM, total gallons, and cumulative raw pulse count for each. At the first MQTT connection after upgrading to v0.2.0, firmware publishes an empty *retained* config to `homeassistant/sensor/well_pressure_filter_dp/config` to retire the misleading Rusco differential sensor. Historical HA recorder records are not intentionally deleted. Existing dashboards may need their obsolete card removed manually.
 
 A hardware failure may produce an in-range voltage; the crude input-range fault check is **not** a safety interlock. Telemetry is for observation only.
+
+## Pressure recalibration from replacement gauge (v0.3.2 — provisional)
+
+**Why:** The original mechanical reference gauge was found to stick. After installing a new glycerin-filled gauge, a visually read lower reference was **36.0 PSI** at camera angle **146.63°**, while upper cutoff was visually read **61.75 PSI** with the post-cycle camera needle-angle median **80.11°**. The Home Assistant pressure export and Pi burst capture on 2026-11-13 were compared in local MST and synchronized using their timestamps. Camera readings during the rise were converted using these two manual gauge/angle anchors. The image detector has occasional obvious errors (e.g. an underexposed frame at 08:09:38 MST) and these were excluded; the model uses approximately 20 acceptable observations.
+
+**Pressure-only affine correction to v0.3.1:** These independently fitted equations convert the *older provisional pressure PSI* into an approximate new-gauge-reference PSI:
+
+```text
+Upstream_new_PSI   = 1.243033 × Upstream_v0.3.1_PSI   - 19.307025
+Downstream_new_PSI = 1.204790 × Downstream_v0.3.1_PSI - 16.281993
+```
+
+In `src/main.cpp`, the original channel-specific voltage/pressure constants are retained and the `PressureCorrection` slope/offset is applied afterward. This makes comparison/rollback simple; `upstream_v`, `downstream_v`, ADC millivolts, and flowmeter calibration/pulses are unchanged. **Versioned provenance:** `calibration_id = glycerin_camfit_20261113_v1`.
+
+Illustrative checks from the November 13 synchronized dataset:
+
+| Time MST | Camera-estimated PSI | Upstream before → after | Downstream before → after |
+|---|---:|---:|---:|
+| 08:06:22 | 44.96 | 51.69 → 44.95 | 50.32 → 44.34 |
+| 08:07:22 | 53.04 | 58.23 → 53.07 | 57.87 → 53.44 |
+| 08:08:00 | 59.40 | 63.29 → 59.37 | 62.65 → 59.20 |
+| Stable post-cycle median | ~61.75 (manual cutoff) | 65.35 → 61.92 | 64.88 → 61.88 |
+
+These are **in-sample matches**, not independent proof of accuracy. The new gauge is our working field standard, but its marked accuracy class and parallax/visual reading uncertainty have not yet been fully characterized. The detector and sampling timestamps also have finite error. Near the lower manual reference, applying the upstream model to the reported 44.95 PSI yields ~36.57 PSI, within ~0.6 PSI of the visually estimated 36 PSI, but that low reference was not a fully synchronized electronic/camera record. We should collect several independent pump cycles before claiming an absolute accuracy margin; do not extrapolate to 0 or 100 PSI without validation.
+
+**Do not edit flowmeter coefficients** as part of this pressure update. The reported flow totals remain nominal until the separately planned five-gallon calibration. Historical Home Assistant pressure records are *not* retroactively corrected. Recorder charts may show an abrupt baseline shift when firmware v0.3.2 first comes online. This is a firmware calibration transition, not a hydraulic event.
 
 ## Adaptive hydraulic acquisition (v0.3.1)
 
