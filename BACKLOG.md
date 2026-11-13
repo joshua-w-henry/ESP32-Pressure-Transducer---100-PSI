@@ -96,6 +96,26 @@
 - Revisit after electronic pressures are calibrated to the replacement glycerin-filled mechanical gauge; historical minimum of 20.7 PSI is **not yet a verified absolute pressure**.
 - **Done when:** At least two pump start/stop cycles are synchronized to reliable motor-state telemetry and pressure/flow observations, with documented pressure-switch behavior and uncertainty.
 
+## Confirmed well control hardware (2026-11-13 photos)
+
+The following details were read from **actual user photographs** of the installed equipment, not inferred from lookalike catalog photos:
+
+| Component | Identification | Observations |
+|---|---|---|
+| Pressure switch | **Square D / Pumptrol Class 9013 FSG2, Series B** | Cover stamped **ON 30 / OFF 50 PSI**; 230 V 1-phase 1½ HP on cover; factory setting does **not** establish current adjustment |
+| Submersible pump control box | **Pentair PENTEK SMC-IR1021-01** | Label: **1 HP, 230 V**, date code **033B19M**; 0.75 kW, 8.2 A nominal, max SF 9.8 A, automatic thermal protection *in motor* |
+| Start relay | **U17-1592** (label visible in box) | Pentair current manual lists U17-1592 for 230-V CSIR controls |
+| Start capacitor | Large black can, exact current component part not fully confirmed | Pentair 2023 documentation lists **U17-2065-R, 105 µF, 330 V** as the nominal 1-HP CSIR replacement; confirm on actual capacitor before sourcing |
+| Submersible pump/motor | **Actual installed model unknown** | Control box says “use with motor(s) P43B0010A2 only,” which is compatibility guidance, **not** confirmation of installed pump or motor model |
+| Pressure tank | **Amtrol 86-gallon**, manufactured 1988 per July 2023 inspection | Tank model `WX-252` carried in project context; verify physical tag when convenient. 2023 report showed 27 PSI air charge at nominal 30/50 operation |
+
+**Manufacturer sources:** 
+- Schneider Electric Class 9013F/G maintenance/troubleshooting bulletin 9013DB0701: https://s3.amazonaws.com/s3.supplyhouse.com/product_files/Square-D-9013GHG6J65X-Install-Instructions.pdf
+- Schneider Electric 9013FSG pressure switch adjustments: https://www.se.com/us/en/faqs/FA121330/
+- Pentair PENTEK Electronics Manual PN793 (2023), §10.4, p.90: https://www.pentair.com/content/dam/extranet/web/nam/pentek/manuals/pn793-electronics-iom.pdf
+
+**Diagnostic interpretation as of November 13:** Standard FSG2 switches are expected to operate at roughly 15–30 PSI differential; user observed a new instance of severe delay toward near-zero pressure before a pump restart, despite roughly 62 PSI cutoff. Schneider specifically lists obstruction of the switch sensing passage / diaphragm inlet as a cause of failure to sense tank pressure; electrical switch contacts, control-box start circuit, motor thermal protection and actual hydraulic recovery remain alternatives. Inspect for passage deposits and pressure communication **only with power isolated and pressure safely released**, or by qualified service. Do not change settings to compensate for an unverified failure. Distinguish switch closure, pump motor electrical start, and pressure recovery from telemetry. Severe recurrent pressure loss warrants prompt inspection, not repeated induced cycles.
+
 ### WS-015 — Mechanical / plumbing investigation of delayed pump cut-in
 **Status:** OPEN · **Priority:** P1 after trustworthy telemetry; **safety exception** if repeated or accompanied by loss of water, dry running, or motor/electrical abnormality
 
