@@ -21,7 +21,9 @@
 ## P0 — Next: make measurements trustworthy
 
 ### WS-001 — Calibrate flow meter 1 by a measured five-gallon draw
-**Status:** TODO · **Owner:** Field test + data analysis  
+- **November 13 completed double-bucket result:** 5.5 US gal each, with no other house water running; pulse counts **196,951→203,098 (Δ6,147)** and **203,098→209,253 (Δ6,155)**, total **12,302 pulses / 11 US gal (41.639529624 L)**. K = **295.4404 pulses/L**, use **295.44**; individual runs 295.2483 and 295.6325 pulses/L. Relative spread 0.13%. The 5.5 gal is a user bucket estimate, not scale-verified; validate volume and a second flow rate when convenient. Calibration **v0.3.4 committed, deployment unverified**. Flow 2 stays nominal placeholder. Raw pulse counts unchanged; accumulated gallon total recalculates and **will show an artificial ~11.7% upward step** in HA on OTA, potentially affecting HA `total_increasing`/utility meter statistics.
+
+**Status:** MEASURED x2 / provisional coefficient committed · **Owner:** Field test + data analysis  
 - Record *meter 1 raw cumulative pulse count* and timestamp at start; deliver a measured **five US gallons** through the installed meter; record end pulse count/timestamp. Avoid mixing another draw into the test.
 - Use a verified container/scale if possible; note uncertainty of the five-gallon reference and whether the volume was measured or read from markings.
 - Compute **pulses per liter = Δpulses / (5 × 3.785411784)**. Nominal expectation: **~6,246 pulses over 5.000 US gal**.
@@ -179,7 +181,7 @@ The following details were read from **actual user photographs** of the installe
 
 ## Immediate next session
 
-1. **WS-001:** Run the five-gallon meter-1 calibration. Capture pre/post total pulse counts, measured volume and approximate flow.
+1. **WS-001:** Build/OTA v0.3.4, verify Flow 1 coefficient and persistently counted pulses; later validate bucket volume by scale and test a second flow rate.
 2. **WS-002:** Reposition the webcam and test OpenCV on the glycerin-filled gauge, then gather a full pump-cycle photo/angle dataset.
 3. **WS-003:** Use new gauge readings to reassess digital pressure coefficients *before* changing firmware again.
 
