@@ -161,6 +161,8 @@ The following details were read from **actual user photographs** of the installe
 - Verify physical bore, pressure drop, installation orientation/straight run, supplied connector and pulse voltage before final plumbing or direct ESP32 input. The advertised nominal G1-1/2 thread size does **not** guarantee a full 1.5-inch flow passage.
 
 ### Confirmed well-room hydraulic topology (owner clarification, 2026-11-13)
+
+- **Follow-up confirmation (Nov 13):** Owner explicitly confirms that at approximately **14:26 MST** they were **closing the direct domestic bypass path and reopening the 4.5-inch × 20-inch filter path**. This deliberate valve transition is the **most likely explanation** for the concurrent downstream-only pressure depression to ~3 PSI, zero Flow 1 pulses, and transient flow surge on reconnection. Mark this as an **operator-induced hydraulic isolation/reconnection event**, not a spontaneous downstream transducer or well check-valve malfunction. The exact valve timing and any sensor contribution were not independently instrumented, so retain the raw data and timing as observed.
 **Actual flow order, as described by owner (replaces earlier simplified assumption):**
 
 ```text
