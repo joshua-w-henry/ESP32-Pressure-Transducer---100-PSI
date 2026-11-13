@@ -2,7 +2,7 @@
 
 **Project plan:** [Water Supply Engineering Backlog](BACKLOG.md) — priorities, calibration tasks, and completed milestones.
 
-Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.2** retains dual GREDIA G1 Hall-effect flowmeters and adaptive pressure reports, and applies a **new provisional pressure-only recalibration** based on the replacement glycerin-filled gauge and the November 13 camera cycle. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
+Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.3** retains dual GREDIA G1 Hall-effect flowmeters and adaptive pressure reports, and applies a **downstream-only relative calibration refinement** on top of the v0.3.2 new-gauge pressure model. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
 
 ## Hardware
 
@@ -44,6 +44,28 @@ For the first OTA update that changes the hostname, use the **current IP address
 With MQTT discovery enabled in Home Assistant, the existing **five** pressure/voltage/Wi-Fi entities remain under **ESP32 Well Room**. Six new entities represent the two flowmeters: GPM, total gallons, and cumulative raw pulse count for each. At the first MQTT connection after upgrading to v0.2.0, firmware publishes an empty *retained* config to `homeassistant/sensor/well_pressure_filter_dp/config` to retire the misleading Rusco differential sensor. Historical HA recorder records are not intentionally deleted. Existing dashboards may need their obsolete card removed manually.
 
 A hardware failure may produce an in-range voltage; the crude input-range fault check is **not** a safety interlock. Telemetry is for observation only.
+
+## Downstream relative-pressure refinement (v0.3.3 — provisional)
+
+**Reason:** The new glycerin-filled gauge and Pi camera support the existing upstream scale, but after v0.3.2 the *downstream* transducer consistently reported about **+1.44 PSI** relative to upstream near ~35 PSI, while the channels nearly agreed near ~62 PSI.
+
+Two stable observed operating regions on November 13, 2026:
+
+| Condition | v0.3.2 upstream | v0.3.2 downstream | Downstream minus upstream |
+|---|---:|---:|---:|
+| Low-pressure zero-flow | 34.84 PSI | 36.28 PSI | +1.44 PSI |
+| High-pressure settled | 61.82 PSI | 61.86 PSI | +0.04 PSI |
+
+The derived downstream-only conversion, applied **after** the existing v0.3.2 `PressureCorrection`, is:
+
+```text
+downstream_v0.3.3_PSI = 1.05473 * downstream_v0.3.2_PSI - 3.4256
+upstream_v0.3.3_PSI   = upstream_v0.3.2_PSI (unchanged)
+```
+
+The code preserves earlier `UPSTREAM_CAL`/`DOWNSTREAM_CAL`, original camera-fit `PressureCorrection` parameters, and defines separate `UPSTREAM_RELATIVE_CORRECTION` (identity) and `DOWNSTREAM_RELATIVE_CORRECTION` stages. **Only the output of the downstream PSI computation changes**, including its raw-pressure interval minima/maxima. Neither pressure transducer's underlying ADC/voltage telemetry nor flow meter 1/2 GPM, cumulative pulses, accumulated volume, NVS accounting, OTA, hydraulic activity detection, nor MQTT rates change.
+
+**Calibration identifier:** `glycerin_camfit_20261113_downrel_v2`. Historical HA values remain as recorded and will show an expected downstream-only step when v0.3.3 is deployed. This calibration is intended mainly for **~35–62 PSI**; the true accuracy near zero PSI during the switch malfunction is unverified. Use future natural pump cycles to validate rather than deliberately causing another severe collapse. This commit was not independently compiled or flashed in the assistant's environment.
 
 ## Pressure recalibration from replacement gauge (v0.3.2 — provisional)
 
