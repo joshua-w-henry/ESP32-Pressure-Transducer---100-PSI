@@ -14,8 +14,8 @@
 
 namespace Config {
 constexpr char HOSTNAME[] = "esp32-well-room";
-constexpr char VERSION[] = "0.3.2";
-constexpr char CALIBRATION_ID[] = "glycerin_camfit_20261113_v1";  // pressure
+constexpr char VERSION[] = "0.3.3";
+constexpr char CALIBRATION_ID[] = "glycerin_camfit_20261113_downrel_v2";  // pressure
 constexpr char FLOW_CALIBRATION_ID[] = "gredia_G1_nominal_330ppl_v1";
 constexpr char TOPIC_STATE[] = "water/well/pressure/state";
 constexpr char TOPIC_AVAIL[] = "water/well/pressure/availability";
@@ -80,10 +80,20 @@ struct PressureCorrection {
 constexpr PressureCorrection UPSTREAM_PRESSURE_CORRECTION {1.243033f, -19.307025f};
 constexpr PressureCorrection DOWNSTREAM_PRESSURE_CORRECTION {1.204790f, -16.281993f};
 
+// v0.3.3: independently observed stable no-flow points on November 13:
+// 34.84 PSI upstream / 36.28 PSI downstream (low pressure)
+// 61.82 PSI upstream / 61.86 PSI downstream (high pressure).
+// Apply a second, *downstream-only* affine correction to v0.3.2 PSI.
+// Pressure provenance is kept explicit so we can reverse this later.
+// This is a relative field calibration, NOT an absolute accuracy standard.
+constexpr PressureCorrection UPSTREAM_RELATIVE_CORRECTION   {1.0f, 0.0f};
+constexpr PressureCorrection DOWNSTREAM_RELATIVE_CORRECTION {1.05473f, -3.4256f};
+
 struct Channel {
   uint8_t pin;
   Calibration cal;
   PressureCorrection correction;
+  PressureCorrection relativeCorrection;
   uint32_t adcMv = 0;          // ESP32 pin, after divider
   float sensorV = 0.0f;        // recovered voltage before divider
   float pressureRaw = 0.0f;
@@ -95,11 +105,15 @@ struct Channel {
   // Default member initializers prevent C++11 aggregate initialization,
   // so provide an explicit constructor for pin + calibration.
   Channel(uint8_t adcPin, const Calibration& calibration,
-          const PressureCorrection& pressureCorrection)
-      : pin(adcPin), cal(calibration), correction(pressureCorrection) {}
+          const PressureCorrection& pressureCorrection,
+          const PressureCorrection& relativePressureCorrection)
+      : pin(adcPin), cal(calibration), correction(pressureCorrection),
+        relativeCorrection(relativePressureCorrection) {}
 };
-Channel upstream   {Config::PIN_UPSTREAM, UPSTREAM_CAL, UPSTREAM_PRESSURE_CORRECTION};
-Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL, DOWNSTREAM_PRESSURE_CORRECTION};
+Channel upstream   {Config::PIN_UPSTREAM, UPSTREAM_CAL, UPSTREAM_PRESSURE_CORRECTION,
+                    UPSTREAM_RELATIVE_CORRECTION};
+Channel downstream {Config::PIN_DOWNSTREAM, DOWNSTREAM_CAL, DOWNSTREAM_PRESSURE_CORRECTION,
+                    DOWNSTREAM_RELATIVE_CORRECTION};
 
 WiFiClient network;
 PubSubClient mqtt(network);
@@ -281,8 +295,10 @@ void sampleChannel(Channel& channel) {
   channel.adcMv = (total + 2) / 4;
   channel.sensorV = (channel.adcMv / 1000.0f) * Config::DIVIDER_MULTIPLIER;
   const float legacyPsi = pressureFromVoltage(channel.sensorV, channel.cal);
-  channel.pressureRaw = legacyPsi * channel.correction.slope
+  const float v032Psi = legacyPsi * channel.correction.slope
                       + channel.correction.offset;
+  channel.pressureRaw = v032Psi * channel.relativeCorrection.slope
+                      + channel.relativeCorrection.offset;
 
   // Detect gross short/open/overrange conditions. A floating input can still
   // appear valid: this is diagnostic telemetry, not a safety mechanism.
