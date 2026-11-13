@@ -1,6 +1,6 @@
-# ESP32 Pressure Transducer — 100 PSI
+# Water Supply — ESP32-S3 Pressure and Dual Flow Monitoring
 
-Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO ESP32-S3 I/O breakout. Publishes provisionally calibrated upstream and downstream pressures plus raw diagnostic voltages to MQTT/Home Assistant. The old Rusco differential entity is deliberately retired until we validate flow-dependent pressure drop. Includes password-protected ArduinoOTA.
+Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.0** retains upstream/downstream pressure and adds two GREDIA G1 Hall-effect flowmeters with pulse counts, gal/min, and cumulative gallons in MQTT/Home Assistant. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
 
 ## Hardware
 
@@ -13,7 +13,7 @@ Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSO
 
 This gives `V_ADC = V_sensor / 2`: a 0.5–4.5 V sensor becomes 0.25–2.25 V at the ESP32 ADC. Never feed a 5 V signal directly into GPIO. Verify the actual wire colors. The OSOYOO breakout's external-power terminal rails may **not** be powered from the ESP32's USB connector; verify before wiring sensors. Never connect its external DC input to USB 5 V unless the board documentation specifically permits it.
 
-**Important:** Firmware v0.2.0 uses a **provisional**, empirically derived two-point calibration based on a mechanical reference gauge. The gauge and the transducers have not yet been independently validated. Pressure values must **not** be used for pump protection or control; the ESP32 is **not** connected to pump-switch controls.
+**Important:** Firmware v0.3.0 retains a **provisional**, empirically derived two-point calibration based on a mechanical reference gauge. The gauge and the transducers have not yet been independently validated. Pressure values must **not** be used for pump protection or control; the ESP32 is **not** connected to pump-switch controls.
 
 ## Flash and configure
 
@@ -39,11 +39,42 @@ For the first OTA update that changes the hostname, use the **current IP address
 - Availability: `water/well/pressure/availability` (`online` / `offline`, retained; offline via broker last will)
 - Discovery: `homeassistant/sensor/well_pressure_*/config` (retained)
 
-With MQTT discovery enabled in Home Assistant, **five** entities—upstream pressure, downstream pressure, both sensor voltages, and Wi-Fi RSSI—appear under **ESP32 Well Room**. At the first MQTT connection after upgrading to v0.2.0, firmware publishes an empty *retained* config to `homeassistant/sensor/well_pressure_filter_dp/config` to retire the misleading Rusco differential sensor. Historical HA recorder records are not intentionally deleted. Existing dashboards may need their obsolete card removed manually.
+With MQTT discovery enabled in Home Assistant, the existing **five** pressure/voltage/Wi-Fi entities remain under **ESP32 Well Room**. Six new entities represent the two flowmeters: GPM, total gallons, and cumulative raw pulse count for each. At the first MQTT connection after upgrading to v0.2.0, firmware publishes an empty *retained* config to `homeassistant/sensor/well_pressure_filter_dp/config` to retire the misleading Rusco differential sensor. Historical HA recorder records are not intentionally deleted. Existing dashboards may need their obsolete card removed manually.
 
 A hardware failure may produce an in-range voltage; the crude input-range fault check is **not** a safety interlock. Telemetry is for observation only.
 
-## Calibration: v0.2.0 (provisional, 2026-11-10/11)
+## Dual GREDIA G1 Hall flowmeters (v0.3.0)
+
+### Wiring
+
+- **Flow meter 1:** 5 V red, GND black, signal yellow through 10 kΩ series to **GPIO6**, with 15 kΩ from GPIO6 to GND.
+- **Flow meter 2:** same arrangement to **GPIO7**.
+- Both flowmeters share the ESP32 GND. GPIO inputs **must not** receive 5 V directly. The divider provides nominal 3.0 V at a 5 V HIGH (2.82 V at a 4.7 V HIGH).
+- **No 0.1 µF capacitor on these pulse inputs.** Use capacitors across the supply if supply decoupling is needed, not on the pulse signal.
+- These are *GPIO interrupt* digital inputs, not additional ADC channels. The firmware counts **rising** edges.
+
+### Coefficients and telemetry
+
+The nominal specification `frequency (Hz) = 5.5 × flow (L/min)` corresponds to **330 pulses/liter**, **3.0303 mL/pulse**, or approximately **1249.19 pulses/US gallon**. Each meter has an independent coefficient in `src/main.cpp`:
+
+```cpp
+constexpr float FLOW_1_PULSES_PER_LITER = 330.0f;
+constexpr float FLOW_2_PULSES_PER_LITER = 330.0f;
+```
+
+- The firmware uses pulse delta over elapsed time every **1 second** to calculate GPM, without smoothing/dropping the actual counted pulses.
+- All 11 Home Assistant entities publish on the existing MQTT state topic **every 5 seconds**.
+- New Home Assistant entities: `Flow Meter 1 Rate`, `Flow Meter 2 Rate` (`gal/min`, device class `volume_flow_rate`); `Flow Meter 1 Total`, `Flow Meter 2 Total` (`gal`, class `water`, state class `total_increasing`); `Flow Meter 1 Pulses`, `Flow Meter 2 Pulses` (`pulses`, state class `total_increasing`).
+- Raw MQTT keys: `flow1_gpm`, `flow2_gpm`, `flow1_total_gal`, `flow2_total_gal`, `flow1_pulses`, `flow2_pulses`, `flow_calibration_id`.
+- `flow_calibration_id` is `gredia_G1_nominal_330ppl_v1`; the pressure `calibration_id` stays unchanged.
+
+**Persistence:** Cumulative *raw pulse counts*, not gallons, are checkpointed to ESP32 NVS (`well-flow` namespace; `m1pulses`/`m2pulses` keys). The firmware writes ~3 seconds after the last flow pulse, at least every 15 minutes during continuous flow, and immediately before an OTA reboot. Unplanned power loss before a checkpoint can lose the newest pulses; erasing NVS resets history. Store total volume externally in HA/RTR for additional durability. A disconnected meter reporting zero cannot be distinguished from no flow using only these pulse inputs.
+
+**Calibration:** These 330 pulses/L values are nominal. For each meter, measure water volume and accumulated pulse-count difference; calculate `pulses_per_liter = pulse_delta / measured_liters`. Verify at several flow rates. The two meters may be in series or on separate branches; do not sum their totals without knowing their actual placement.
+
+At 1 GPM we expect approximately 20.8 Hz; at 8 GPM, approximately 166.6 Hz. Adaptive reporting and pump-state integration are intentionally deferred to a future revision.
+
+## Pressure calibration: v0.2.0 coefficients retained (provisional, 2026-11-10/11)
 
 The earlier v0.1.0 firmware assumed `P_nominal = 25 × (V_sensor - 0.5)`, with `V_sensor` derived from the calibrated ADC millivolts and the 2:1 resistor divider. At two static, no-flow operating points, the mechanical gauge and Home Assistant indicated:
 
@@ -76,6 +107,9 @@ The diagnostic serial output is once per second, samples occur at 40 Hz with exp
 
 
 ## Notes
+
+- On UNICORN, use `git pull` in the project directory; verify that ignored local `include/secrets.h` still has the exact SSID `Keeper of the Hounds`. Build with `pio run -e ota` before `pio run -e ota -t upload --upload-port 192.168.86.31`.
+- Flowmeter code has **not** been hardware-built or OTA-tested here. Confirm PlatformIO compiles and validates pulse counts before relying on totals.
 
 - No hardcoded device IP: DHCP by design. The router reservation can be added later.
 - All program logic is local. MQTT requires only the local broker.
