@@ -95,6 +95,30 @@ uint32_t lastWifiAttempt = 0;
 uint32_t lastMqttAttempt = 0;
 String clientId;
 
+// Counts are incremented only in their respective GPIO ISRs. Aligned 32-bit
+// loads are atomic on ESP32-S3; unsigned subtraction handles counter wrap.
+// Never debounce or analog-smooth these digital pulse inputs.
+volatile uint32_t flow1Pulses = 0;
+volatile uint32_t flow2Pulses = 0;
+// Each counter has one ISR writer; the main loop only reads aligned snapshots.
+// Plain assignment avoids the C++20 deprecated volatile ++ expression.
+void IRAM_ATTR onFlow1Rise() { flow1Pulses = flow1Pulses + 1u; }
+void IRAM_ATTR onFlow2Rise() { flow2Pulses = flow2Pulses + 1u; }
+
+Preferences flowNvs;
+bool flowNvsReady = false;
+uint64_t flow1BootPulses = 0;
+uint64_t flow2BootPulses = 0;
+uint32_t lastFlow1Pulses = 0;
+uint32_t lastFlow2Pulses = 0;
+uint32_t savedFlow1Pulses = 0;
+uint32_t savedFlow2Pulses = 0;
+uint32_t lastFlowRateMs = 0;
+uint32_t lastFlowSaveMs = 0;
+uint32_t lastFlowActivityMs = 0;
+float flow1Lpm = 0.0f;
+float flow2Lpm = 0.0f;
+
 // Per-publication extrema use pre-EMA pressure estimates. A time-window
 // minimum/maximum gives visibility into transients between MQTT messages.
 // Values remain provisional until the new mechanical gauge is calibrated.
@@ -171,30 +195,6 @@ uint32_t currentPublishPeriod(uint32_t now) {
   return Config::PUBLISH_ACTIVE_MS;
 }
 
-
-// Counts are incremented only in their respective GPIO ISRs. Aligned 32-bit
-// loads are atomic on ESP32-S3; unsigned subtraction handles counter wrap.
-// Never debounce or analog-smooth these digital pulse inputs.
-volatile uint32_t flow1Pulses = 0;
-volatile uint32_t flow2Pulses = 0;
-// Each counter has one ISR writer; the main loop only reads aligned snapshots.
-// Plain assignment avoids the C++20 deprecated volatile ++ expression.
-void IRAM_ATTR onFlow1Rise() { flow1Pulses = flow1Pulses + 1u; }
-void IRAM_ATTR onFlow2Rise() { flow2Pulses = flow2Pulses + 1u; }
-
-Preferences flowNvs;
-bool flowNvsReady = false;
-uint64_t flow1BootPulses = 0;
-uint64_t flow2BootPulses = 0;
-uint32_t lastFlow1Pulses = 0;
-uint32_t lastFlow2Pulses = 0;
-uint32_t savedFlow1Pulses = 0;
-uint32_t savedFlow2Pulses = 0;
-uint32_t lastFlowRateMs = 0;
-uint32_t lastFlowSaveMs = 0;
-uint32_t lastFlowActivityMs = 0;
-float flow1Lpm = 0.0f;
-float flow2Lpm = 0.0f;
 
 double totalGallons(uint64_t pulses, float pulsesPerLiter) {
   return (static_cast<double>(pulses) / pulsesPerLiter) * Config::US_GALLONS_PER_LITER;
