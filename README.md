@@ -1,5 +1,7 @@
 # Water Supply — ESP32-S3 Pressure and Dual Flow Monitoring
 
+**Project plan:** [Water Supply Engineering Backlog](BACKLOG.md) — priorities, calibration tasks, and completed milestones.
+
 Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.0** retains upstream/downstream pressure and adds two GREDIA G1 Hall-effect flowmeters with pulse counts, gal/min, and cumulative gallons in MQTT/Home Assistant. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
 
 ## Hardware
