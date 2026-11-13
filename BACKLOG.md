@@ -86,6 +86,15 @@
 - **WS-011:** Water quality measurements and solar-assisted water treatment/storage, based on actual chemistry testing; separate scope from instrumentation.
 - **WS-012:** Irrigation use/per-zone water metering, using measured rather than assumed flow.
 
+### WS-014 — Characterize real pump-start pressure collapse and pressure-switch operation
+**Status:** BACKLOG · **Priority:** P2 (investigate after calibration)
+- On November 13, 2026, both electronic pressure sensors independently recorded a **real hydraulic pressure dip** with near-simultaneous minima at **08:02:08 MST**: upstream **20.71 PSI**, downstream **20.88 PSI** (provisional pressure calibration). Pressure recovered to ~38 PSI at the next 5-second observation. User observed the drop as real, not a voltage/ADC artifact.
+- Separate *hydraulic response* from *electrical pump-switch action*. Correlate future 40-Hz-derived minimum/maximum pressure, frequent MQTT reports, flowmeter counts, the mechanical gauge camera, and an independently confirmed motor-start indicator (pump electrical load data) with synchronized timestamps.
+- Record actual cut-in/cut-out, possible switch contact bounce/response delay, pump start latency, tank behavior, and any startup pressure overshoot or undershoot. Do not infer switch malfunction solely from this transient.
+- Note that adaptive v0.3.1 telemetry only first appeared at ~08:04:15 MST on this run, **after** the 08:02:08 transient; the earlier samples are ~5 seconds apart, leaving the true transient minimum and duration unresolved.
+- Revisit after electronic pressures are calibrated to the replacement glycerin-filled mechanical gauge; historical minimum of 20.7 PSI is **not yet a verified absolute pressure**.
+- **Done when:** At least two pump start/stop cycles are synchronized to reliable motor-state telemetry and pressure/flow observations, with documented pressure-switch behavior and uncertainty.
+
 ## Calibration and maintenance log
 
 | Date | Event | Notes |
