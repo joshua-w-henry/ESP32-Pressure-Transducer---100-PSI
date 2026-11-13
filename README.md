@@ -2,7 +2,21 @@
 
 **Project plan:** [Water Supply Engineering Backlog](BACKLOG.md) — priorities, calibration tasks, and completed milestones.
 
-Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.3** retains dual GREDIA G1 Hall-effect flowmeters and adaptive pressure reports, and applies a **downstream-only relative calibration refinement** on top of the v0.3.2 new-gauge pressure model. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
+Measurement-only well/filtration monitor for an ESP32-S3-WROOM-1-N16R8 on an OSOYOO breakout. Firmware **v0.3.4** retains adaptive pressure reports and the v0.3.3 downstream-only relative pressure calibration, while updating domestic **Flow Meter 1** from the provisional nominal 330 to **295.44 pulses/liter** based on two consecutive 5.5-US-gallon bucket draws. The Rusco differential sensor remains retired; password-protected ArduinoOTA is unchanged.
+
+## Flow Meter 1 bucket calibration (v0.3.4; November 13, 2026)
+
+Two consecutive draws, **each assumed 5.5 US gallons**, with no other domestic water running:
+
+| Trial | Start raw pulses | End raw pulses | Delta | Pulses/liter |
+|---|---:|---:|---:|---:|
+| 1 | 196,951 | 203,098 | 6,147 | 295.2483 |
+| 2 | 203,098 | 209,253 | 6,155 | 295.6325 |
+| **Combined** | | | **12,302** | **295.4404** |
+
+Use **295.44 pulses/liter** for GREDIA domestic Flow 1, converted from 11 US gallons (= 41.639529624 liters) in total. Test-to-test pulse difference is 8 / 6151 = **0.13%**. This demonstrates **repeatability**, not absolute calibration accuracy: verify the bucket's actual volume with a scale and check at other flow rates later. Firmware v0.3.4 changes **Flow 1 only**; Flow 2's nominal 330 pulses/L is a temporary placeholder for a different agricultural meter.
+
+**Expected HA effect:** Stored raw cumulative pulses are not reset. Recalculating all historical pulses with the new coefficient **raises the published all-time Flow 1 gallon total by about 11.70%**, which may be interpreted as an artificial jump by HA `total_increasing`/utility-meter statistics. Document the change and consider recording corrected consumption as a separately versioned derived series if using daily/monthly utility meters. Historical HA values are not automatically rewritten. **Version v0.3.4 committed, not yet independently built or OTA verified.**
 
 ## Hardware
 
@@ -127,7 +141,7 @@ The end-to-end latency to enter active mode is up to about three seconds for pre
 The nominal specification `frequency (Hz) = 5.5 × flow (L/min)` corresponds to **330 pulses/liter**, **3.0303 mL/pulse**, or approximately **1249.19 pulses/US gallon**. Each meter has an independent coefficient in `src/main.cpp`:
 
 ```cpp
-constexpr float FLOW_1_PULSES_PER_LITER = 330.0f;
+constexpr float FLOW_1_PULSES_PER_LITER = 295.44f;
 constexpr float FLOW_2_PULSES_PER_LITER = 330.0f;
 ```
 
@@ -135,7 +149,7 @@ constexpr float FLOW_2_PULSES_PER_LITER = 330.0f;
 - All 11 Home Assistant entities publish on the existing MQTT state topic **every 5 seconds**.
 - New Home Assistant entities: `Flow Meter 1 Rate`, `Flow Meter 2 Rate` (`gal/min`, device class `volume_flow_rate`); `Flow Meter 1 Total`, `Flow Meter 2 Total` (`gal`, class `water`, state class `total_increasing`); `Flow Meter 1 Pulses`, `Flow Meter 2 Pulses` (`pulses`, state class `total_increasing`).
 - Raw MQTT keys: `flow1_gpm`, `flow2_gpm`, `flow1_total_gal`, `flow2_total_gal`, `flow1_pulses`, `flow2_pulses`, `flow_calibration_id`.
-- `flow_calibration_id` is `gredia_G1_nominal_330ppl_v1`; the pressure `calibration_id` stays unchanged.
+- `flow_calibration_id` is `flow1_gredia_G1_bucket_295p44ppl_20261113_v1` (identifies Flow 1's measured coefficient; Flow 2 remains an uncalibrated 330-pulses/L placeholder). The pressure `calibration_id` stays unchanged.
 
 **Persistence:** Cumulative *raw pulse counts*, not gallons, are checkpointed to ESP32 NVS (`well-flow` namespace; `m1pulses`/`m2pulses` keys). The firmware writes ~3 seconds after the last flow pulse, at least every 15 minutes during continuous flow, and immediately before an OTA reboot. Unplanned power loss before a checkpoint can lose the newest pulses; erasing NVS resets history. Store total volume externally in HA/RTR for additional durability. A disconnected meter reporting zero cannot be distinguished from no flow using only these pulse inputs.
 
