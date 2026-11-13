@@ -137,6 +137,12 @@ The following details were read from **actual user photographs** of the installe
 - **Important:** A genuine near-zero pressure delay is potentially consequential. **Do not intentionally repeat severe pressure-loss cycles merely to collect data**; escalate inspection sooner if it recurs or causes loss of service or abnormal pump behavior. Telemetry work should not postpone a needed safety inspection.
 - **Done when:** Confirmed, repeatable relationship between pressure, switch action, motor start, and subsequent pressure recovery; root cause and corrective action documented, with before/after data.
 
+### 2026-11-13 — v0.3.3 downstream-only calibration (committed; OTA field verification pending)
+- New natural-cycle references from v0.3.2 show **upstream 34.84 / downstream 36.28 PSI** at low-pressure settled conditions and **upstream 61.82 / downstream 61.86 PSI** at high pressure. The 1.44 PSI low-end bias is pressure-dependent and largely disappears near 62 PSI.
+- Keep upstream exactly unchanged. Downstream second-stage field correction: **new PSI = 1.05473 × v0.3.2 downstream PSI − 3.4256**, following original v0.2 voltage anchors and v0.3.2 camera-fit stage. The model is an approximation for about 35–62 PSI, and is **not validated at near-zero pressure**.
+- Firmware v0.3.3 commit `f0e7ed2204ebf1b8d9f17de2044940d8e8b37904`, calibration ID `glycerin_camfit_20261113_downrel_v2`. Upstream code, 40 Hz pressure sampling, adaptive publishing, flow calibration/pulse counts/NVS totals, and OTA unchanged. **Build, deployment, and post-deployment low/high comparisons remain to be verified.**
+- Do not deliberately induce another near-zero pressure event to calibrate: inspect Square D FSG2 sensing leg and electrical control first.
+
 ### 2026-11-13 — v0.3.2 static field validation (HA + Pi camera)
 - **Data windows:** HA 08:00–10:22:53 MST; Pi 08:06–10:18:43 MST. 129 Pi rows, 126 detected, 3 HTTP 503 camera failures; 49 detections during the settled 09:20–10:18 period.
 - **Firmware calibration step:** 08:45:17 MST, upstream 43.51→34.52 PSI (−8.99 PSI), downstream 43.62→36.01 PSI (−7.61 PSI), with no corresponding sensor-voltage step. This is the v0.3.2 software correction and should not be interpreted as a pressure event.
