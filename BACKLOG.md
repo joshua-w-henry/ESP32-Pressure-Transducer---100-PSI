@@ -95,6 +95,15 @@
 - Revisit after electronic pressures are calibrated to the replacement glycerin-filled mechanical gauge; historical minimum of 20.7 PSI is **not yet a verified absolute pressure**.
 - **Done when:** At least two pump start/stop cycles are synchronized to reliable motor-state telemetry and pressure/flow observations, with documented pressure-switch behavior and uncertainty.
 
+### 2026-11-13 — v0.3.2 static field validation (HA + Pi camera)
+- **Data windows:** HA 08:00–10:22:53 MST; Pi 08:06–10:18:43 MST. 129 Pi rows, 126 detected, 3 HTTP 503 camera failures; 49 detections during the settled 09:20–10:18 period.
+- **Firmware calibration step:** 08:45:17 MST, upstream 43.51→34.52 PSI (−8.99 PSI), downstream 43.62→36.01 PSI (−7.61 PSI), with no corresponding sensor-voltage step. This is the v0.3.2 software correction and should not be interpreted as a pressure event.
+- **Quiet zero-flow comparison (09:20–10:18):** HA upstream median **34.84 PSI** (n=1719, SD 0.083); downstream median **36.28 PSI** (n=1702, SD 0.113); synchronized median downstream−upstream **+1.44 PSI** (n=1683, SD 0.089). Pi angle median 149.323° from 49 detections, giving **~34.96 PSI** using the provisional camera conversion (SD ~0.43 PSI); user's visual reading near this period was **~34.5 PSI**.
+- **Interpretation:** Upstream agrees with camera at this low-pressure operating point; downstream has a persistent ~1.4 PSI positive relative bias here. This does **not** establish calibration at high pressure: next pumped cycle after v0.3.2 is needed before changing slopes/offsets.
+- **Raw downstream anomaly:** Single voltage entity value **0.000 V** at 08:51:05 MST and `downstream_interval_min` **13.93 PSI** at 08:51:10, despite stable filtered pressure. Treat as isolated measurement/data-path glitch until verified—not a verified hydraulic collapse. This is distinct from the real startup pressure dip observed at 08:02 earlier.
+- **Flow history:** Meter 1 pulse counter increased 128,496→177,976 between 08:00 and 08:39:30, corresponding to nominal **39.61 US gal** through the sensor over that export segment (still using uncalibrated 330 pulses/L). HA flow-entity history ended when values stopped changing; no implication of firmware dropout.
+- **Next:** Keep current firmware collecting; repeat across pressure rise/cutoff with new gauge and synchronized timestamps. For optical data, reject sudden implausible angle jumps and retain photos; do not fit pressure calibration to one quiet low-pressure segment alone.
+
 ## Calibration and maintenance log
 
 | Date | Event | Notes |
