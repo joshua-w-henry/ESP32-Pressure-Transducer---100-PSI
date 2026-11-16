@@ -3,6 +3,8 @@
 **Established:** 2026-11-12  
 **Scope:** Well-room pressure, flow, camera reference, MQTT/Home Assistant historian and later water-supply subsystems.  
 **Working principle:** Preserve original pulse counts / ADC readings and calibration versions; improve empirically from real-world measurements. All telemetry is observational, **not** a pump safety/control interlock.
+**Maintenance records:** [human-readable dated log](MAINTENANCE_LOG.md) and [Wayne Maintenance app-ready JSONL](maintenance/events.jsonl), beginning with the **2026-11-15 GOOTHO 5 µm 4.5×20-inch domestic cartridge replacement**.
+
 
 ## Current checkpoint
 
