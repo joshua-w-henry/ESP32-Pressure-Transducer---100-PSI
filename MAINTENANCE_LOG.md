@@ -33,3 +33,20 @@ Dated, human-readable field maintenance events. Machine-readable records for eve
 
 **Future service interval:** Not yet established. Use observed pressure drop under controlled flow, sediment loading, and water quality; do not automatically adopt cartridge-label month guidance as a tested system-specific interval.
 
+### Post-replacement flow/pressure performance baseline — 2026-11-15 19:32–20:32 MST
+
+Source: Home Assistant export `3b24ec7b-7390-4b92-bc3a-f63a2052b9ae.csv` covering **19:32:18–20:32:18 MST**. Includes upstream/downstream PSI and domestic Flow Meter 1 GPM. Pairing of nearest upstream/downstream pressure observations within 0.4 s produced 3,425 matched pressure pairs out of 3,519 upstream observations. Flow-rate state was carried forward between Home Assistant change-only updates.
+
+| Domestic Flow 1 rate | Matched observations (approx.) | Median measured upstream − downstream |
+|---|---:|---:|
+| 0 GPM | 3,009 | **0.14 PSI** |
+| 1–2 GPM | 23 | **0.50 PSI** |
+| 3–4 GPM | 383 | **1.94 PSI** |
+| 4–5 GPM | 59 | **2.10 PSI** |
+| 5–7 GPM | 32 | **4.02 PSI** |
+
+- **Observed max domestic flow:** 6.223 GPM. The near-6 GPM flowing differential was approximately 4 PSI, including the **Rusco, larger sediment filter, the selected 4.5×20 filter leg, and intervening piping**; it is not the cartridge-only loss.
+- **Pump behavior during large draw:** At ~20:29:26 MST, upstream reached minimum **36.97 PSI** while domestic flow was about **3.43 GPM**, then pressure increased during continued flow—consistent with a normal pump cut-in near 37 PSI, **not independently corroborated by a motor-current sensor**. Upstream high within export **55.57 PSI**, but the final pump cut-out is not contained in the ending segment.
+- **Caution:** The 0-flow differential mostly reflects sensor offset/noise, not hydraulic resistance. Flow rates and filter-bypass valve state should be matched before comparing with future clogged-filter observations. Previous 2026-11-13 differential (~2.3 PSI at ~3.5 GPM) was under a different/uncertain domestic path and is not a clean before–after reference. Baseline is provisional but useful.
+- This checkpoint is logged separately from the replacement so future Wayne Maintenance reporting can distinguish **service event** from **performance observation**.
+
